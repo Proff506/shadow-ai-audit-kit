@@ -1,0 +1,822 @@
+{
+  "_meta": {
+    "version": 1,
+    "updated": "2026-08-11",
+    "description": "AI tool domain watchlist for the Shadow AI Discovery scanner. Entries with scan=false are infrastructure/cloud domains tracked for reference but not reported as Shadow AI findings."
+  },
+  "domains": {
+    "aistudio.google.com": {
+      "tool": "Google AI Studio",
+      "category": "platform",
+      "risk_default": "HIGH",
+      "notes": "Google AI developer platform. May expose prompts and data.",
+      "action": "block",
+      "label": "Google AI Studio"
+    },
+    "anthropic.com": {
+      "tool": "Claude / Anthropic API",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Claude.ai consumer interface and API.",
+      "action": "block",
+      "label": "Claude / Anthropic"
+    },
+    "api.dropboxapi.com": {
+      "tool": "Dropbox API",
+      "label": "Dropbox API",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "api.openai.com": {
+      "tool": "OpenAI API",
+      "category": "api",
+      "risk_default": "HIGH",
+      "notes": "Direct API access — may indicate developer usage or integrations.",
+      "action": "block",
+      "label": "OpenAI API"
+    },
+    "bard.google.com": {
+      "tool": "Google Bard (now Gemini)",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Legacy Bard URL, redirects to Gemini.",
+      "action": "block",
+      "label": "Google Bard (legacy)"
+    },
+    "canva.com": {
+      "tool": "Canva AI",
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Canva's AI design features.",
+      "action": "monitor",
+      "label": "Canva (AI features)"
+    },
+    "character.ai": {
+      "tool": "Character.ai",
+      "category": "consumer_ai",
+      "risk_default": "LOW",
+      "notes": "AI character chat — typically personal use.",
+      "action": "block",
+      "label": "Character.ai"
+    },
+    "chat.deepseek.com": {
+      "tool": "DeepSeek Chat",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "DeepSeek chat interface. Data sovereignty concern.",
+      "action": "block",
+      "label": "DeepSeek Chat"
+    },
+    "chat.openai.com": {
+      "tool": "ChatGPT",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Legacy ChatGPT URL.",
+      "action": "block",
+      "label": "ChatGPT (legacy)"
+    },
+    "chatgpt.com": {
+      "tool": "ChatGPT",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Direct ChatGPT web interface.",
+      "action": "block",
+      "label": "ChatGPT"
+    },
+    "claude.ai": {
+      "tool": "Claude",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Direct Claude web interface.",
+      "action": "block",
+      "label": "Claude"
+    },
+    "cloudflare.com": {
+      "tool": "Cloudflare CDN",
+      "label": "Cloudflare CDN",
+      "category": "cdn",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "cloudsmith.io": {
+      "tool": "Cloudsmith package hosting",
+      "label": "Cloudsmith package hosting",
+      "category": "infrastructure",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "codeium.com": {
+      "tool": "Codeium",
+      "category": "code_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI code completion.",
+      "action": "block",
+      "label": "Codeium AI completion"
+    },
+    "consensus.app": {
+      "tool": "Consensus",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI research search engine.",
+      "action": "monitor",
+      "label": "Consensus"
+    },
+    "copilot.microsoft.com": {
+      "tool": "Microsoft Copilot",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Microsoft's consumer/enterprise AI. M365 Copilot may have different data terms.",
+      "action": "block",
+      "label": "Microsoft Copilot"
+    },
+    "copy.ai": {
+      "tool": "Copy.ai",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI copywriting.",
+      "action": "block",
+      "label": "Copy.ai"
+    },
+    "cursor.com": {
+      "tool": "Cursor",
+      "category": "code_ai",
+      "risk_default": "HIGH",
+      "notes": "AI code editor primary domain.",
+      "action": "block",
+      "label": "Cursor AI editor"
+    },
+    "cursor.sh": {
+      "tool": "Cursor",
+      "category": "code_ai",
+      "risk_default": "HIGH",
+      "notes": "AI code editor. Sends code to AI backend.",
+      "action": "block",
+      "label": "Cursor AI editor"
+    },
+    "debian.org": {
+      "tool": "Debian package repositories",
+      "label": "Debian package repositories",
+      "category": "infrastructure",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "deepseek.com": {
+      "tool": "DeepSeek",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Chinese AI model. Data sovereignty concern — data may transit China.",
+      "action": "block",
+      "label": "DeepSeek"
+    },
+    "descript.com": {
+      "tool": "Descript",
+      "category": "creative_ai",
+      "risk_default": "HIGH",
+      "notes": "AI audio/video editing. May process sensitive media.",
+      "action": "block",
+      "label": "Descript"
+    },
+    "docs.google.com": {
+      "tool": "Google Docs",
+      "label": "Google Docs",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "drive.google.com": {
+      "tool": "Google Drive upload",
+      "label": "Google Drive upload",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "dropbox.com": {
+      "tool": "Dropbox",
+      "label": "Dropbox",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "elevenlabs.io": {
+      "tool": "ElevenLabs",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI voice cloning / TTS.",
+      "action": "monitor",
+      "label": "ElevenLabs"
+    },
+    "elicit.com": {
+      "tool": "Elicit",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI research assistant.",
+      "action": "monitor",
+      "label": "Elicit"
+    },
+    "fathom.video": {
+      "tool": "Fathom",
+      "category": "transcription",
+      "risk_default": "HIGH",
+      "notes": "Meeting recording/transcription.",
+      "action": "block",
+      "label": "Fathom transcription"
+    },
+    "file.io": {
+      "tool": "file.io",
+      "label": "file.io",
+      "category": "ai_tool",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "fireflies.ai": {
+      "tool": "Fireflies.ai",
+      "category": "transcription",
+      "risk_default": "HIGH",
+      "notes": "AI meeting assistant/transcription.",
+      "action": "block",
+      "label": "Fireflies.ai"
+    },
+    "gemini.google.com": {
+      "tool": "Google Gemini",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Google's consumer AI interface.",
+      "action": "block",
+      "label": "Google Gemini"
+    },
+    "github.com": {
+      "tool": "GitHub (software updates)",
+      "label": "GitHub (software updates)",
+      "category": "dev_tool",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "githubcopilot.com": {
+      "tool": "GitHub Copilot",
+      "category": "code_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Enterprise version has data protection. Individual does not.",
+      "action": "block",
+      "label": "GitHub Copilot"
+    },
+    "grammarly.com": {
+      "tool": "Grammarly",
+      "category": "embedded_ai",
+      "risk_default": "HIGH",
+      "notes": "Grammar processes all text typed. May include sensitive content.",
+      "action": "block",
+      "label": "Grammarly"
+    },
+    "graph.microsoft.com": {
+      "tool": "Microsoft Graph API",
+      "label": "Microsoft Graph API",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "monitor",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "grok.com": {
+      "tool": "Grok",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Standalone Grok interface.",
+      "action": "block",
+      "label": "Grok"
+    },
+    "groq.com": {
+      "tool": "Groq",
+      "category": "platform",
+      "risk_default": "MEDIUM",
+      "notes": "Fast inference API.",
+      "action": "monitor",
+      "label": "Groq"
+    },
+    "huggingface.co": {
+      "tool": "Hugging Face",
+      "category": "platform",
+      "risk_default": "MEDIUM",
+      "notes": "Model hub and hosted inference. Free tier may train on inputs.",
+      "action": "block",
+      "label": "Hugging Face"
+    },
+    "jasper.ai": {
+      "tool": "Jasper",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI content/marketing writing tool.",
+      "action": "block",
+      "label": "Jasper AI writing"
+    },
+    "kimi.moonshot.cn": {
+      "tool": "Kimi (Moonshot AI)",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Chinese AI assistant. Data sovereignty concern.",
+      "action": "block",
+      "label": "Kimi"
+    },
+    "klingai.com": {
+      "tool": "Kling AI",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI video generation.",
+      "action": "block",
+      "label": "Kling AI (AI video)"
+    },
+    "leonardo.ai": {
+      "tool": "Leonardo AI",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI image generation platform.",
+      "action": "block",
+      "label": "Leonardo AI"
+    },
+    "luma.ai": {
+      "tool": "Luma AI",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI 3D/video generation.",
+      "action": "block",
+      "label": "Luma AI"
+    },
+    "mega.nz": {
+      "tool": "MEGA cloud storage",
+      "label": "MEGA cloud storage",
+      "category": "ai_tool",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "merlin.foyer.work": {
+      "tool": "Merlin AI",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI browser extension.",
+      "action": "block",
+      "label": "Merlin AI extension"
+    },
+    "midjourney.com": {
+      "tool": "Midjourney",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI image generation. Discord-based.",
+      "action": "monitor",
+      "label": "Midjourney"
+    },
+    "monica.im": {
+      "tool": "Monica AI",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI browser extension.",
+      "action": "block",
+      "label": "Monica AI extension"
+    },
+    "moonshot.cn": {
+      "tool": "Moonshot AI",
+      "category": "platform",
+      "risk_default": "HIGH",
+      "notes": "Chinese AI platform API.",
+      "action": "block",
+      "label": "Moonshot AI"
+    },
+    "notion.ai": {
+      "tool": "Notion AI",
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Notion AI API endpoint.",
+      "action": "monitor",
+      "label": "Notion AI"
+    },
+    "notion.so": {
+      "tool": "Notion AI",
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Notion's AI features. Data may be sent to Notion's AI backend.",
+      "action": "monitor",
+      "label": "Notion"
+    },
+    "ntp.org": {
+      "tool": "NTP time sync",
+      "label": "NTP time sync",
+      "category": "infrastructure",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "ollama.com": {
+      "tool": "Ollama model registry (updates only)",
+      "label": "Ollama model registry (updates only)",
+      "category": "infrastructure",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "onedrive.live.com": {
+      "tool": "OneDrive",
+      "label": "OneDrive",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "openai.com": {
+      "tool": "ChatGPT / OpenAI API",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Primary consumer AI. Free and Plus tiers train on input by default.",
+      "action": "block",
+      "label": "OpenAI / ChatGPT"
+    },
+    "otter.ai": {
+      "tool": "Otter.ai",
+      "category": "transcription",
+      "risk_default": "HIGH",
+      "notes": "AI meeting transcription. May capture sensitive meeting content.",
+      "action": "block",
+      "label": "Otter.ai transcription"
+    },
+    "outlook.office.com": {
+      "tool": "Office 365 email",
+      "label": "Office 365 email",
+      "category": "email",
+      "risk_default": "LOW",
+      "action": "monitor",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "perplexity.ai": {
+      "tool": "Perplexity AI",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI search engine. May transmit query content.",
+      "action": "monitor",
+      "label": "Perplexity AI"
+    },
+    "phind.com": {
+      "tool": "Phind",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI search for developers.",
+      "action": "block",
+      "label": "Phind"
+    },
+    "pi.ai": {
+      "tool": "Pi (Inflection AI)",
+      "category": "consumer_ai",
+      "risk_default": "LOW",
+      "notes": "Personal AI assistant.",
+      "action": "block",
+      "label": "Pi (Inflection)"
+    },
+    "pika.art": {
+      "tool": "Pika",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI video generation.",
+      "action": "block",
+      "label": "Pika (AI video)"
+    },
+    "platform.openai.com": {
+      "tool": "OpenAI Platform",
+      "category": "platform",
+      "risk_default": "HIGH",
+      "notes": "OpenAI developer platform. API key management.",
+      "action": "block",
+      "label": "OpenAI Platform"
+    },
+    "poe.com": {
+      "tool": "Poe (by Quora)",
+      "category": "consumer_ai",
+      "risk_default": "HIGH",
+      "notes": "Multi-model AI chat platform.",
+      "action": "block",
+      "label": "Poe (multi-model AI)"
+    },
+    "quillbot.com": {
+      "tool": "QuillBot",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI paraphrasing/grammar tool.",
+      "action": "block",
+      "label": "QuillBot"
+    },
+    "replicate.com": {
+      "tool": "Replicate",
+      "category": "platform",
+      "risk_default": "MEDIUM",
+      "notes": "Hosted model inference API.",
+      "action": "block",
+      "label": "Replicate"
+    },
+    "replit.com": {
+      "tool": "Replit AI",
+      "category": "code_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Online IDE with AI features. Code leaves the machine.",
+      "action": "block",
+      "label": "Replit (AI features)"
+    },
+    "rev.com": {
+      "tool": "Rev",
+      "category": "transcription",
+      "risk_default": "MEDIUM",
+      "notes": "Transcription service with AI features.",
+      "action": "monitor",
+      "label": "Rev"
+    },
+    "runwayml.com": {
+      "tool": "Runway ML",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI video/image generation.",
+      "action": "monitor",
+      "label": "Runway ML"
+    },
+    "rytr.me": {
+      "tool": "Rytr",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI writing assistant.",
+      "action": "block",
+      "label": "Rytr"
+    },
+    "security.ubuntu.com": {
+      "tool": "Ubuntu security updates",
+      "label": "Ubuntu security updates",
+      "category": "software_update",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "sider.ai": {
+      "tool": "Sider",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI browser extension/sidebar.",
+      "action": "block",
+      "label": "Sider AI extension"
+    },
+    "slack.com": {
+      "tool": "Slack (internal chat — may have AI features)",
+      "label": "Slack (internal chat — may have AI features)",
+      "category": "monitored_service",
+      "risk_default": "LOW",
+      "action": "monitor",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "smtp.gmail.com": {
+      "tool": "Gmail SMTP",
+      "label": "Gmail SMTP",
+      "category": "email",
+      "risk_default": "LOW",
+      "action": "monitor",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "smtp.office365.com": {
+      "tool": "Office 365 SMTP",
+      "label": "Office 365 SMTP",
+      "category": "monitored_service",
+      "risk_default": "LOW",
+      "action": "monitor",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "stability.ai": {
+      "tool": "Stability AI",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Stable Diffusion and other generative AI models.",
+      "action": "block",
+      "label": "Stability AI"
+    },
+    "suno.com": {
+      "tool": "Suno",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI music generation.",
+      "action": "block",
+      "label": "Suno (AI music)"
+    },
+    "tabnine.com": {
+      "tool": "Tabnine",
+      "category": "code_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI code completion. Enterprise version can run locally.",
+      "action": "block",
+      "label": "Tabnine AI completion"
+    },
+    "tldv.io": {
+      "tool": "tldv",
+      "category": "transcription",
+      "risk_default": "HIGH",
+      "notes": "Meeting transcription AI.",
+      "action": "block",
+      "label": "tldv transcription"
+    },
+    "together.ai": {
+      "tool": "Together AI",
+      "category": "platform",
+      "risk_default": "MEDIUM",
+      "notes": "Hosted open-source model inference.",
+      "action": "monitor",
+      "label": "Together AI"
+    },
+    "ubuntu.com": {
+      "tool": "Ubuntu updates",
+      "label": "Ubuntu updates",
+      "category": "software_update",
+      "risk_default": "LOW",
+      "action": "allow",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "udio.com": {
+      "tool": "Udio",
+      "category": "creative_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI music generation.",
+      "action": "block",
+      "label": "Udio (AI music)"
+    },
+    "upload.google.com": {
+      "tool": "Google upload",
+      "label": "Google upload",
+      "category": "cloud_storage",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "uploadfiles.io": {
+      "tool": "UploadFiles",
+      "label": "UploadFiles",
+      "category": "ai_tool",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "wetransfer.com": {
+      "tool": "WeTransfer",
+      "label": "WeTransfer",
+      "category": "ai_tool",
+      "risk_default": "LOW",
+      "action": "block",
+      "notes": "Infrastructure entry (not an AI-scan target).",
+      "scan": false
+    },
+    "wordtune.com": {
+      "tool": "Wordtune",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI writing and paraphrasing tool.",
+      "action": "block",
+      "label": "Wordtune"
+    },
+    "writesonic.com": {
+      "tool": "Writesonic",
+      "category": "writing_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI writing tool.",
+      "action": "block",
+      "label": "Writesonic"
+    },
+    "x.com": {
+      "tool": "Grok (X/Twitter)",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "xAI Grok integrated into X. Premium feature.",
+      "action": "monitor",
+      "label": "Grok (X/Twitter)"
+    },
+    "you.com": {
+      "tool": "You.com",
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM",
+      "notes": "AI search assistant.",
+      "action": "block",
+      "label": "You.com"
+    },
+    "zapier.com": {
+      "tool": "Zapier AI",
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM",
+      "notes": "Automation platform with AI features. May process business data.",
+      "action": "monitor",
+      "label": "Zapier (AI features)"
+    }
+  },
+  "software_names": {
+    "ChatGPT": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Claude": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Gemini": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Copilot": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Perplexity": {
+      "category": "consumer_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Otter": {
+      "category": "transcription",
+      "risk_default": "HIGH"
+    },
+    "Fireflies": {
+      "category": "transcription",
+      "risk_default": "HIGH"
+    },
+    "Grammarly": {
+      "category": "embedded_ai",
+      "risk_default": "HIGH"
+    },
+    "Jasper": {
+      "category": "writing_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Cursor": {
+      "category": "code_ai",
+      "risk_default": "HIGH"
+    },
+    "Tabnine": {
+      "category": "code_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Notion": {
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Canva": {
+      "category": "embedded_ai",
+      "risk_default": "MEDIUM"
+    },
+    "DeepSeek": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Midjourney": {
+      "category": "creative_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Suno": {
+      "category": "creative_ai",
+      "risk_default": "MEDIUM"
+    },
+    "ElevenLabs": {
+      "category": "creative_ai",
+      "risk_default": "MEDIUM"
+    },
+    "QuillBot": {
+      "category": "writing_ai",
+      "risk_default": "MEDIUM"
+    },
+    "Poe": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Grok": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    },
+    "Kimi": {
+      "category": "consumer_ai",
+      "risk_default": "HIGH"
+    }
+  }
+}

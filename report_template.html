@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shadow AI Discovery Report — {client}</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; line-height: 1.6; padding: 40px; max-width: 900px; margin: 0 auto; background: #f8fafc; }}
+    .header {{ border-bottom: 3px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }}
+    .header h1 {{ font-size: 24px; color: #0f172a; }}
+    .header .subtitle {{ color: #64748b; font-size: 14px; margin-top: 4px; }}
+    .header .meta {{ display: flex; gap: 30px; margin-top: 12px; font-size: 13px; color: #475569; }}
+    .header .meta strong {{ color: #0f172a; }}
+    .section {{ background: white; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }}
+    .section h2 {{ font-size: 18px; color: #0f172a; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }}
+    .risk-stats {{ display: flex; gap: 16px; margin: 16px 0; }}
+    .risk-stat {{ display: flex; align-items: center; gap: 8px; }}
+    .risk-stat .count {{ font-size: 24px; font-weight: bold; color: #0f172a; }}
+    .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px; color: white; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    th {{ text-align: left; padding: 8px 12px; background: #f1f5f9; border-bottom: 2px solid #e2e8f0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; }}
+    td {{ padding: 10px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
+    tr:hover {{ background: #f8fafc; }}
+    .alert {{ padding: 12px 16px; border-radius: 6px; margin: 12px 0; font-size: 14px; }}
+    .alert.critical {{ background: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; }}
+    .alert.warning {{ background: #fffbeb; border-left: 4px solid #f59e0b; color: #92400e; }}
+    .alert.ok {{ background: #f0fdf4; border-left: 4px solid #16a34a; color: #166534; }}
+    .summary-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin: 16px 0; }}
+    .summary-card {{ background: #f8fafc; border-radius: 6px; padding: 16px; text-align: center; }}
+    .summary-card .number {{ font-size: 32px; font-weight: bold; color: #0f172a; }}
+    .summary-card .label {{ font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }}
+    ul {{ padding-left: 20px; }}
+    li {{ margin-bottom: 8px; }}
+    .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }}
+    .footer strong {{ color: #0f172a; }}
+    @media print {{
+      body {{ padding: 20px; background: white; }}
+      .section {{ box-shadow: none; border: 1px solid #e2e8f0; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Shadow AI Discovery Report</h1>
+    <div class="subtitle">Confidential — prepared for {client}</div>
+    <div class="meta">
+      <span><strong>Auditor:</strong> {auditor}, elect-rix Technology Solutions</span>
+      <span><strong>Scan date:</strong> {scan_date}</span>
+      <span><strong>Platform:</strong> {platform}</span>
+      <span><strong>Report version:</strong> 1.0</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Executive Summary</h2>
+    <div class="summary-grid">
+      <div class="summary-card"><div class="number">{total_findings}</div><div class="label">Total Findings</div></div>
+      <div class="summary-card"><div class="number">{unique_tools}</div><div class="label">Unique AI Tools</div></div>
+      <div class="summary-card"><div class="number">{critical_count}</div><div class="label">Critical Risk</div></div>
+      <div class="summary-card"><div class="number">{high_count}</div><div class="label">High Risk</div></div>
+    </div>
+
+    <div class="risk-stats">{risk_summary_html}</div>
+
+    {pipeda_alert}
+
+    {insurance_alert}
+
+    <h3 style="margin-top:16px">Top 3 Immediate Actions</h3>
+    <ul>{top_actions_html}</ul>
+  </div>
+
+  <div class="section">
+    <h2>Risk Analysis</h2>
+    <table>
+      <tr><th>Risk Level</th><th>Count</th><th>Description</th></tr>
+      <tr><td><span class="badge" style="background:#dc2626">CRITICAL</span></td><td>{critical_count}</td><td>Client PII, financial data, or health info pasted into consumer AI</td></tr>
+      <tr><td><span class="badge" style="background:#ea580c">HIGH</span></td><td>{high_count}</td><td>Confidential business data, contracts, or strategies in AI tools</td></tr>
+      <tr><td><span class="badge" style="background:#ca8a04">MEDIUM</span></td><td>{medium_count}</td><td>Internal processes, non-sensitive docs in AI tools</td></tr>
+      <tr><td><span class="badge" style="background:#16a34a">LOW</span></td><td>{low_count}</td><td>Public info, general research queries</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Recommendations</h2>
+    <h3>Immediate (This Week)</h3>
+    <ul>
+      <li>Stop all staff from pasting client data into consumer AI tools (ChatGPT, Claude, Gemini)</li>
+      <li>Document which personal accounts are being used for work tasks</li>
+      <li>Review browser extensions with AI features — remove unapproved ones</li>
+    </ul>
+    <h3 style="margin-top:12px">Short-Term (2-4 Weeks)</h3>
+    <ul>
+      <li>Implement an Acceptable Use Policy for AI tools</li>
+      <li>Approve a specific set of AI tools for staff use (enterprise tier with data protection)</li>
+      <li>Staff training session on AI data sharing risks</li>
+    </ul>
+    <h3 style="margin-top:12px">Long-Term (1-3 Months)</h3>
+    <ul>
+      <li>Deploy Local Vault for on-premises AI — data never leaves the building</li>
+      <li>Install Operations Gatekeeper for network-level egress control</li>
+      <li>Quarterly AI usage audits to maintain compliance</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Full Inventory</h2>
+    <table>
+      <tr><th>Risk</th><th>Tool</th><th>Category</th><th>Source</th><th>Evidence</th><th>Notes</th></tr>
+      {findings_rows}
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Methodology</h2>
+    <p style="font-size:13px;color:#475569">
+      This report was generated by the elect-rix Shadow AI Discovery Scanner on {platform}.
+      The scan combines DNS log analysis, browser history review, software inventory, and staff interviews to identify
+      unauthorized AI tool usage. All data is processed locally — no findings leave the audit environment.
+    </p>
+  </div>
+
+  <div class="footer">
+    <p><strong>elect-rix Technology Solutions</strong> &mdash; RixBot Technologies Inc.</p>
+    <p>elect-rix.tech &mdash; (506) 801-2722 &mdash; Confidential</p>
+    <p>This report was prepared for {client}. Findings are based on data available as of {scan_date}.</p>
+  </div>
+</body>
+</html>
