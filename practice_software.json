@@ -1,0 +1,631 @@
+{
+  "_meta": {
+    "version": 1,
+    "last_updated": "2026-08-25",
+    "description": "Canadian practice management software database for Document Discovery Mode. Detects installed practice management tools and provides export instructions for data migration.",
+    "consumers": ["usb-audit-kit/scanner.py"],
+    "merge_rules": "Add new entries by software name key. Keys are matched case-insensitively against installed software names using the same word-boundary token matching as ai_domains.json software_names."
+  },
+  "tools": {
+    "QuickBooks Desktop": {
+      "display_name": "QuickBooks Desktop",
+      "category": "accounting",
+      "data_location": "Company .qbw files — default in C:\\Users\\Public\\Documents\\Intuit\\QuickBooks\\Company Files\\ (Windows). Backup files (.qbb) created on export.",
+      "data_types": ["financial_records", "client_billing", "invoices", "payroll", "vendor_records"],
+      "export_method": "backup_file",
+      "export_instructions": "1. Open QuickBooks Desktop. 2. File > Backup Company > Create Local Backup. 3. Choose Local Backup. 4. Browse to USB drive as destination. 5. Click Next, then Save Now. 6. Wait for backup to complete. 7. Verify .qbb file on USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://quickbooks.intuit.com/desktop/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["QuickBooks Desktop", "QuickBooks Premier", "QuickBooks Pro", "QuickBooks Enterprise"],
+          "data_path": "C:\\Users\\Public\\Documents\\Intuit\\QuickBooks\\Company Files\\"
+        },
+        "macos": {
+          "detect_patterns": ["QuickBooks", "QuickBooks Desktop"],
+          "data_path": "~/Documents/QuickBooks/"
+        },
+        "linux": null
+      },
+      "notes": "Desktop edition only. QuickBooks Online is a separate SaaS product — see 'QuickBooks Online' entry. The .qbb backup file is the primary export artifact."
+    },
+    "QuickBooks Online": {
+      "display_name": "QuickBooks Online",
+      "category": "accounting",
+      "data_location": "Cloud-hosted by Intuit. No local data files. Access via web browser at qbo.intuit.com.",
+      "data_types": ["financial_records", "client_billing", "invoices", "payroll", "vendor_records"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to QuickBooks Online (qbo.intuit.com). 2. Settings (gear icon) > Export Data. 3. Choose what to export (lists, transactions). 4. Click Export to Excel/CSV. 5. Download the ZIP file. 6. For full export: Settings > Export to QuickBooks Desktop (if available) to create a .qbb file. 7. Save exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://quickbooks.intuit.com/online/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["QuickBooks Online"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["QuickBooks Online"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud SaaS — no local files to scan. Detection is via browser bookmark or installed desktop app (if any). Data must be exported through the web dashboard by the client. Note: Intuit has been deprecating the 'Export to QuickBooks Desktop' path — it may not be available for all accounts. The Excel/CSV export is the reliable path."
+    },
+    "Sage 50": {
+      "display_name": "Sage 50 (formerly Simply Accounting)",
+      "category": "accounting",
+      "data_location": "Company data files (.sai) — default in C:\\Users\\Public\\Documents\\Sage 50\\ or custom location. Backup files (.saj) on export.",
+      "data_types": ["financial_records", "client_billing", "invoices", "payroll", "inventory"],
+      "export_method": "backup_file",
+      "export_instructions": "1. Open Sage 50. 2. File > Backup. 3. Choose what to include (company data, reports). 4. Browse to USB drive as backup destination. 5. Click Backup. 6. Wait for backup to complete. 7. Verify .saj backup file on USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.sage.com/en-ca/products/sage-50/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Sage 50", "Simply Accounting", "Sage Simply Accounting"],
+          "data_path": "C:\\Users\\Public\\Documents\\Sage 50\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Sage 50 is the Canadian rebrand of Simply Accounting. Windows-only desktop product. The .saj backup file is the primary export artifact."
+    },
+    "Clio": {
+      "display_name": "Clio Manage",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted. Local desktop app cache in %APPDATA%\\Clio (Windows) or ~/Library/Application Support/Clio (macOS). Primary data is in the cloud.",
+      "data_types": ["client_matters", "contacts", "documents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "api_export",
+      "export_instructions": "1. Log in to Clio Manage (app.clio.com) with an admin account. 2. Go to Settings > Account > Data Export. 3. Request full data export. 4. Clio sends an email when the export ZIP is ready (may take several hours for large accounts). 5. Download the ZIP from the link in the email. 6. Alternatively, use the Clio API with an API key to export matters, contacts, and documents programmatically. 7. Save exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.clio.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Clio", "Clio Manage", "Clio Launcher"],
+          "data_path": "%APPDATA%\\Clio"
+        },
+        "macos": {
+          "detect_patterns": ["Clio", "Clio Manage", "Clio Launcher"],
+          "data_path": "~/Library/Application Support/Clio"
+        },
+        "linux": null
+      },
+      "notes": "Clio is cloud-first. The desktop app (Clio Launcher) syncs documents locally. Full data export must be initiated from the web dashboard. API docs at developers.clio.com."
+    },
+    "PracticePanther": {
+      "display_name": "PracticePanther",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted. Browser-based access at app.practicepanther.com. No local data files.",
+      "data_types": ["client_matters", "contacts", "documents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to PracticePanther (app.practicepanther.com) with an admin account. 2. Go to Settings > Export Data. 3. Select what to export (contacts, matters, time entries, invoices). 4. Click Export. 5. Download the CSV/ZIP file when ready. 6. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.practicepanther.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["PracticePanther", "Practice Panther"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["PracticePanther", "Practice Panther"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. No local data files to scan. Data export is through the web dashboard. API available for programmatic export."
+    },
+    "MyCase": {
+      "display_name": "MyCase",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted. Browser-based access at app.mycase.com. No local data files.",
+      "data_types": ["client_matters", "contacts", "documents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to MyCase (app.mycase.com) with an admin account. 2. Go to Settings > Export Data. 3. Select data types to export (cases, contacts, documents, time entries, invoices). 4. Click Export Data. 5. Download the ZIP file when ready (emailed link). 6. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.mycase.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["MyCase"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["MyCase"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. Data export through web dashboard. API available for programmatic export."
+    },
+    "Xero": {
+      "display_name": "Xero",
+      "category": "accounting",
+      "data_location": "Cloud-hosted. Browser-based access at go.xero.com. No local data files. Desktop app (if installed) is a thin client.",
+      "data_types": ["financial_records", "client_billing", "invoices", "payroll", "bank_transactions"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to Xero (go.xero.com) with an advisor or admin account. 2. Go to Settings > Export Data. 3. Select the data to export (general ledger, contacts, invoices, bank transactions). 4. Choose format (CSV or XLSX). 5. Click Export. 6. Download files. 7. For full backup: Settings > Export > All Data. 8. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.xero.com/ca/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Xero"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["Xero"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. Popular with Canadian small businesses and bookkeeping firms. Data export through web dashboard. API available at developer.xero.com."
+    },
+    "FreshBooks": {
+      "display_name": "FreshBooks",
+      "category": "accounting",
+      "data_location": "Cloud-hosted. Browser-based access at my.freshbooks.com. No local data files.",
+      "data_types": ["financial_records", "client_billing", "invoices", "time_entries", "expenses"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to FreshBooks (my.freshbooks.com) with an admin account. 2. Go to Settings > Export Data. 3. Select what to export (clients, invoices, expenses, time entries, reports). 4. Click Export Data. 5. Download CSV/ZIP files. 6. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.freshbooks.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["FreshBooks"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["FreshBooks"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. Popular with freelancers and small consultancies. Data export through web dashboard. API available at developers.freshbooks.com."
+    },
+    "ProFile": {
+      "display_name": "Intuit ProFile",
+      "category": "tax",
+      "data_location": "Tax return files (.tax) — default in C:\\Users\\Public\\Documents\\ProFile\\ or custom client folder.",
+      "data_types": ["tax_returns", "client_information", "financial_records", "T-slips", "carryforwards"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate ProFile data files (.tax, .tpf) on the client's machine. 2. Common location: C:\\Users\\Public\\Documents\\ProFile\\ or custom folder. 3. Copy the entire ProFile data folder to USB drive. 4. For structured export: ProFile > File > Backup > Backup All Clients. 5. Verify the backup file on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://proconnect.intuit.com/profile/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["ProFile", "Intuit ProFile"],
+          "data_path": "C:\\Users\\Public\\Documents\\ProFile\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only Canadian tax preparation software. The .tax files are the primary data artifact. File-based copy is the primary export method."
+    },
+    "CaseWare": {
+      "display_name": "CaseWare Working Papers",
+      "category": "accounting",
+      "data_location": "Engagement files (.ac, .cw) — stored in client folders, typically on a network share or local drive. Path is user-defined at engagement creation.",
+      "data_types": ["financial_statements", "working_papers", "trial_balances", "adjusting_entries", "engagement_documents"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate CaseWare engagement files (.ac, .cw) — check the client's engagement folder (often a network share). 2. Copy the entire engagement folder for each client to the USB drive. 3. For structured export: CaseWare > File > Export > export trial balance to CSV/Excel. 4. For backup: CaseWare > File > Backup > backup all engagement files to ZIP. 5. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.caseware.com/products/caseware-working-papers",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["CaseWare", "CaseWare Working Papers"],
+          "data_path": "User-defined (check network shares and local document folders)"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. Engagement files are often stored on a network share — check Module D5 (Network Discovery) results for NAS/SMB shares. File-based copy is the primary export."
+    },
+    "TaxCycle": {
+      "display_name": "TaxCycle",
+      "category": "tax",
+      "data_location": "Tax return files (.taxcycle, .t21) — stored in client folders. Default: C:\\Users\\<user>\\Documents\\TaxCycle\\ or custom path.",
+      "data_types": ["tax_returns", "client_information", "financial_records", "T-slips", "carryforwards", "RRSP/RRIF"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate TaxCycle data files (.taxcycle, .t21) on the client's machine. 2. Common location: C:\\Users\\<user>\\Documents\\TaxCycle\\ or custom client folder. 3. Copy the entire TaxCycle client data folder to USB drive. 4. For structured export: TaxCycle > File > Export > export to CSV/Excel. 5. For backup: TaxCycle > File > Backup > backup all clients to ZIP. 6. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.trilogysoftware.ca/taxcycle/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["TaxCycle"],
+          "data_path": "C:\\Users\\<user>\\Documents\\TaxCycle\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only Canadian tax preparation software by Trilogy Software. Popular alternative to ProFile. File-based copy is the primary export."
+    },
+    "CanTax": {
+      "display_name": "CanTax (T2/Express T2)",
+      "category": "tax",
+      "data_location": "Tax return files (.ct2, .exp) — stored in client folders. Default: C:\\Users\\<user>\\Documents\\CanTax\\ or custom path.",
+      "data_types": ["tax_returns", "client_information", "financial_records", "T-slips", "corporate_returns"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate CanTax data files (.ct2, .exp) on the client's machine. 2. Common location: C:\\Users\\<user>\\Documents\\CanTax\\ or custom folder. 3. Copy the entire CanTax client data folder to USB drive. 4. For backup: CanTax > File > Backup > backup all clients. 5. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.taxtron.ca/cantax/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["CanTax", "Cantax", "CanTax T2", "Express T2"],
+          "data_path": "C:\\Users\\<user>\\Documents\\CanTax\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only Canadian tax preparation software. Originally by Wolters Kluwer, now branded as TaxTron (taxtron.ca). The .ct2/.exp files are the primary data artifact. File-based copy is the primary export. See also the TaxTron entry for the current-branded successor."
+    },
+    "Amicus Attorney": {
+      "display_name": "Amicus Attorney",
+      "category": "legal_practice",
+      "data_location": "Database files in install directory or custom location — default: C:\\Program Files\\Amicus\\ or C:\\Users\\Public\\Documents\\Amicus\\. Server edition uses SQL Server database.",
+      "data_types": ["client_matters", "contacts", "calendar", "time_entries", "documents", "email"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate Amicus data directory (check install path or server database). 2. For standalone: Amicus > File > Backup > backup database to USB. 3. For server edition: export from SQL Server (backup .bak file). 4. For structured export: Amicus > File > Export > export contacts and matters to CSV. 5. Verify the backup/export files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.amicusattorney.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Amicus", "Amicus Attorney", "Amicus Small Firm"],
+          "data_path": "C:\\Program Files\\Amicus\\ or C:\\Users\\Public\\Documents\\Amicus\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. Older Canadian legal practice management tool. Server edition uses Microsoft SQL Server — requires SQL Server Management Studio for backup. Still used by some established law firms in Atlantic Canada."
+    },
+    "PCLaw": {
+      "display_name": "PCLaw",
+      "category": "legal_practice",
+      "data_location": "Database files (.pdb, .db) in install directory or custom location — default: C:\\Program Files\\PCLaw\\ or C:\\Users\\Public\\Documents\\PCLaw\\.",
+      "data_types": ["client_matters", "contacts", "time_entries", "billing", "trust_accounting", "general_ledger", "accounts_payable"],
+      "export_method": "backup_file",
+      "export_instructions": "1. Locate PCLaw data directory (check install path). 2. PCLaw > File > Backup > backup database to USB drive. 3. For structured export: PCLaw > Reports > Billing/Trust > export to CSV. 4. For full export: PCLaw > File > Export > export all tables to CSV. 5. Verify the backup file on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.lexisnexis.com/en-ca/products/pclaw/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["PCLaw", "PCLawPro"],
+          "data_path": "C:\\Program Files\\PCLaw\\ or C:\\Users\\Public\\Documents\\PCLaw\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. LexisNexis Canada legal billing and accounting tool. Common in established Canadian law firms. Database backup is the primary export artifact."
+    },
+    "DivorceMate": {
+      "display_name": "DivorceMate Software",
+      "category": "legal_practice",
+      "data_location": "Client files in install directory — default: C:\\Users\\<user>\\Documents\\DivorceMate\\ or custom path.",
+      "data_types": ["family_law_documents", "financial_statements", "child_support_calculations", "spousal_support_calculations"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate DivorceMate data files on the client's machine. 2. Common location: C:\\Users\\<user>\\Documents\\DivorceMate\\. 3. Copy the entire DivorceMate client data folder to USB drive. 4. For structured export: DivorceMate > File > Export > export calculations to PDF. 5. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.divorcematesoftware.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["DivorceMate", "Divorce Mate"],
+          "data_path": "C:\\Users\\<user>\\Documents\\DivorceMate\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. Canadian family law practice tool. Common in family law firms in Ontario and Atlantic Canada. File-based copy is the primary export."
+    },
+    "Actionstep": {
+      "display_name": "Actionstep",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted. Browser-based access at actionstep.com. Desktop app (if installed) is a thin client.",
+      "data_types": ["client_matters", "contacts", "documents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "api_export",
+      "export_instructions": "1. Log in to Actionstep (actionstep.com) with an admin account. 2. Go to Admin > Data Management > Export Data. 3. Select data types (matters, contacts, documents, time entries). 4. Click Export. 5. Download the ZIP/CSV file when ready. 6. Save to USB drive. 7. For API export: use the Actionstep API with OAuth credentials.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.actionstep.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Actionstep"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["Actionstep"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first legal practice management. Growing in the Canadian market. Data export through web dashboard or API. API docs at docs.actionstep.com."
+    },
+    "Clio Grow": {
+      "display_name": "Clio Grow (formerly Lexicata)",
+      "category": "crm",
+      "data_location": "Cloud-hosted. Part of the Clio platform. Access via app.clio.com or grow.clio.com.",
+      "data_types": ["client_intake", "leads", "contacts", "engagement_letters", "client_relationships"],
+      "export_method": "api_export",
+      "export_instructions": "1. Log in to Clio Grow (grow.clio.com) with an admin account. 2. Go to Settings > Export Data. 3. Select data types (contacts, leads, intake forms). 4. Click Export. 5. Download CSV/ZIP file. 6. Save to USB drive. 7. If integrated with Clio Manage, data is also accessible via Clio Manage's export.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.clio.com/grow/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Clio Grow", "Lexicata"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["Clio Grow", "Lexicata"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. Part of the Clio suite. Often installed alongside Clio Manage. Data export through web dashboard."
+    },
+    "NetDocuments": {
+      "display_name": "NetDocuments",
+      "category": "document_management",
+      "data_location": "Cloud-hosted document management system. Local cache in %LOCALAPPDATA%\\NetDocuments\\ (Windows) or ~/Library/Application Support/NetDocuments (macOS).",
+      "data_types": ["documents", "email", "client_files", "templates", "engagement_letters"],
+      "export_method": "api_export",
+      "export_instructions": "1. Log in to NetDocuments (netdocuments.com) with an admin account. 2. Go to Admin > Export. 3. Select cabinets/folders to export. 4. Choose export format (ZIP with native files, or CSV metadata). 5. Click Export and wait for processing. 6. Download the export file. 7. Alternatively, use the NetDocuments API to export documents programmatically. 8. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.netdocuments.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["NetDocuments", "ndOffice"],
+          "data_path": "%LOCALAPPDATA%\\NetDocuments\\"
+        },
+        "macos": {
+          "detect_patterns": ["NetDocuments"],
+          "data_path": "~/Library/Application Support/NetDocuments"
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first DMS used by mid-size Canadian law firms. ndOffice is the desktop integration app. Full export must be done from the web dashboard. API available for programmatic export."
+    },
+    "Worldox": {
+      "display_name": "Worldox",
+      "category": "document_management",
+      "data_location": "Document repository on local server or network share — typically a shared folder on a file server. Index database in Worldox install directory.",
+      "data_types": ["documents", "email", "client_files", "profiles", "version_history"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate the Worldox document repository (check network shares — Module D5 may have found it). 2. The documents are stored in a folder structure (profile-based). 3. Copy the entire document repository to USB drive using robocopy or rsync. 4. For metadata export: Worldox > Tools > Export > export profile index to CSV. 5. Verify the copied files on the USB drive. 6. Note: the index database is proprietary — the document files themselves are what matters for migration.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.worldox.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Worldox", "World Software Worldox"],
+          "data_path": "User-defined (check network shares)"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. Older document management system used by some established law firms. Documents are standard files (PDF, DOCX) stored in a profile-based folder structure — the documents themselves are directly copyable. The proprietary index is not needed for migration."
+    },
+    "TaxTron": {
+      "display_name": "TaxTron (T1/TP1)",
+      "category": "tax",
+      "data_location": "Tax return files (.tax, .tp1) — stored in client folders. Default: C:\\Users\\<user>\\Documents\\TaxTron\\ or custom path.",
+      "data_types": ["tax_returns", "client_information", "financial_records", "T-slips", "carryforwards"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate TaxTron data files (.tax, .tp1) on the client's machine. 2. Common location: C:\\Users\\<user>\\Documents\\TaxTron\\ or custom client folder. 3. Copy the entire TaxTron client data folder to USB drive. 4. For backup: TaxTron > File > Backup > backup all clients to ZIP. 5. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.taxtron.ca",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["TaxTron", "TaxTron T1", "TaxTron TP1", "TaxTron Corporation"],
+          "data_path": "C:\\Users\\<user>\\Documents\\TaxTron\\"
+        },
+        "macos": {
+          "detect_patterns": ["TaxTron"],
+          "data_path": "~/Documents/TaxTron/"
+        },
+        "linux": null
+      },
+      "notes": "Current-branded successor to CanTax (Wolters Kluwer). Canadian tax preparation software for T1 (personal) and T2 (corporate) returns. Available on Windows and macOS. File-based copy is the primary export."
+    },
+    "GenuTax": {
+      "display_name": "GenuTax",
+      "category": "tax",
+      "data_location": "Tax return files (.gtx) — stored in client folders. Default: C:\\Users\\<user>\\Documents\\GenuTax\\ or install directory.",
+      "data_types": ["tax_returns", "client_information", "financial_records", "T-slips", "carryforwards"],
+      "export_method": "file_export",
+      "export_instructions": "1. Locate GenuTax data files (.gtx) on the client's machine. 2. Common location: C:\\Users\\<user>\\Documents\\GenuTax\\ or the install directory. 3. Copy the entire GenuTax client data folder to USB drive. 4. For backup: GenuTax > File > Backup > backup all returns. 5. Verify the copied files on the USB drive.",
+      "has_api_export": false,
+      "has_file_export": true,
+      "vendor_url": "https://www.genutax.ca",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["GenuTax", "GenuTax Canadian"],
+          "data_path": "C:\\Users\\<user>\\Documents\\GenuTax\\"
+        },
+        "macos": null,
+        "linux": null
+      },
+      "notes": "Windows-only. Free Canadian personal tax preparation software. Popular with small firms and individual preparers. File-based copy is the primary export."
+    },
+    "Digits Law": {
+      "display_name": "Digits Law",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted. Browser-based access at app.digitslaw.com. Local cache in %APPDATA%\\DigitsLaw (Windows) or ~/Library/Application Support/DigitsLaw (macOS) if desktop app installed.",
+      "data_types": ["client_matters", "contacts", "documents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "api_export",
+      "export_instructions": "1. Log in to Digits Law (app.digitslaw.com) with an admin account. 2. Go to Settings > Data Export. 3. Select data types (matters, contacts, documents, time entries, invoices). 4. Click Export. 5. Download the CSV/ZIP file when ready. 6. Save to USB drive. 7. For API export: contact Digits Law support for API credentials.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://digitslaw.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Digits Law", "DigitsLaw"],
+          "data_path": "%APPDATA%\\DigitsLaw"
+        },
+        "macos": {
+          "detect_patterns": ["Digits Law", "DigitsLaw"],
+          "data_path": "~/Library/Application Support/DigitsLaw"
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first legal practice management. Growing in the Canadian market, especially among small to mid-size firms. Data export through web dashboard."
+    },
+    "LEAP": {
+      "display_name": "LEAP Legal Software",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted with local sync. Document vault synced to %USERPROFILE%\\LEAP\\ (Windows) or ~/LEAP/ (macOS) via LEAP Desktop App. Matter data stored in cloud.",
+      "data_types": ["client_matters", "contacts", "documents", "precedents", "time_entries", "billing", "trust_accounting"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to LEAP (leap.com) with an admin account. 2. Go to Settings > Data Export. 3. Select matters and documents to export. 4. Click Export — LEAP generates a ZIP file. 5. Download the ZIP when ready (may take time for large matter sets). 6. Copy the local LEAP document vault folder to USB as backup. 7. Save all exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.leap.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["LEAP Legal", "LEAP Desktop"],
+          "data_path": "%USERPROFILE%\\LEAP\\"
+        },
+        "macos": {
+          "detect_patterns": ["LEAP Legal", "LEAP Desktop"],
+          "data_path": "~/LEAP/"
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first legal practice management popular in Canadian small-firm market. Desktop app syncs documents locally. Full matter export must be initiated from web dashboard. API available for programmatic export."
+    },
+    "Smokeball": {
+      "display_name": "Smokeball",
+      "category": "legal_practice",
+      "data_location": "Cloud-hosted with local document cache. Browser-based access at app.smokeball.com. Desktop app caches documents in %APPDATA%\\Smokeball (Windows) or ~/Library/Application Support/Smokeball (macOS).",
+      "data_types": ["client_matters", "contacts", "documents", "precedents", "time_entries", "billing", "calendar", "tasks"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to Smokeball (app.smokeball.com) with an admin account. 2. Go to Settings > Data Export. 3. Select data types (matters, contacts, documents, time entries, invoices). 4. Click Export Data. 5. Download the ZIP file when ready. 6. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.smokeball.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Smokeball", "Smokeball Legal"],
+          "data_path": "%APPDATA%\\Smokeball"
+        },
+        "macos": {
+          "detect_patterns": ["Smokeball"],
+          "data_path": "~/Library/Application Support/Smokeball"
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first legal practice management. Growing in the Canadian small-firm market. Document auto-fill and precedent automation features. Data export through web dashboard."
+    },
+    "Microsoft 365": {
+      "display_name": "Microsoft 365 (SharePoint + OneDrive + Teams)",
+      "category": "document_management",
+      "data_location": "Cloud-hosted (SharePoint Online, OneDrive for Business). Local sync via OneDrive client (%USERPROFILE%\\OneDrive - <org>). Teams local cache in %LOCALAPPDATA%\\Microsoft\\Teams. Exchange Online for email.",
+      "data_types": ["documents", "email", "calendar", "contacts", "teams_chat", "sharepoint_sites", "oneDrive_files"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. For OneDrive: sign in at onedrive.microsoft.com > Settings > Backup > Download all files as ZIP. 2. For SharePoint: SharePoint Admin Center > Site Collections > select site > export. Or use SharePoint Migration Tool. 3. For Exchange email: Outlook on the web > Settings > Mail > Accounts > Export to a .pst file (via Outlook desktop). 4. For Teams: Teams Admin Center > Analytics & reports > export. Chat data export requires eDiscovery (admin). 5. Alternatively, use Microsoft 365 Compliance Center > Data Export for org-wide export. 6. Save all exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.microsoft.com/en-ca/microsoft-365",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Microsoft 365", "Office 365"],
+          "data_path": "%USERPROFILE%\\OneDrive - *"
+        },
+        "macos": {
+          "detect_patterns": ["Microsoft 365", "Office 365"],
+          "data_path": "~/Library/CloudStorage/OneDrive*"
+        },
+        "linux": {
+          "detect_patterns": ["OneDrive", "onedrive"],
+          "data_path": "~/OneDrive"
+        }
+      },
+      "notes": "Extremely common in Canadian professional firms. OneDrive sync is already detected by Module D2 (Cloud Sync). This entry covers the broader M365 ecosystem: SharePoint, Teams, Exchange. Full org-level export requires admin access to the M365 Compliance Center. Individual users can export their own OneDrive and mailbox. API available via Microsoft Graph."
+    },
+    "Google Workspace": {
+      "display_name": "Google Workspace (Drive + Gmail + Calendar)",
+      "category": "document_management",
+      "data_location": "Cloud-hosted. Local sync via Google Drive for Desktop (%USERPROFILE%\\Google Drive or virtual drive G:\\). Gmail and Calendar are cloud-only.",
+      "data_types": ["documents", "email", "calendar", "contacts", "shared_drives"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. For Google Drive: use Google Takeout (takeout.google.com) > select Drive > Create Export. Download ZIP when ready. 2. For Gmail: Google Takeout > select Mail > create export (MBOX format). 3. For Calendar: Google Takeout > select Calendar (ICS format). 4. For Contacts: Google Contacts > Export > vCard or CSV. 5. For org-level: Google Workspace Admin Console > Data Export (super admin only). 6. Save all exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://workspace.google.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Google Workspace", "Google Workspace for Business"],
+          "data_path": "%USERPROFILE%\\Google Drive"
+        },
+        "macos": {
+          "detect_patterns": ["Google Workspace"],
+          "data_path": "~/Google Drive"
+        },
+        "linux": {
+          "detect_patterns": ["google-drive-ocamlfuse"],
+          "data_path": "~/Google Drive"
+        }
+      },
+      "notes": "Common in small Canadian firms and startups. Google Drive sync is already detected by Module D2 (Cloud Sync). Google Takeout is the primary export mechanism — it covers Drive, Gmail, Calendar, and Contacts in one export. Org-level export requires super admin access to the Admin Console."
+    },
+    "Sage Intacct": {
+      "display_name": "Sage Intacct",
+      "category": "accounting",
+      "data_location": "Cloud-hosted. Browser-based access at intacct.com. No local data files. Desktop app (if installed) is a thin client.",
+      "data_types": ["financial_records", "client_billing", "invoices", "accounts_payable", "accounts_receivable", "general_ledger", "project_accounting"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to Sage Intacct (intacct.com) with an admin account. 2. Go to Company > Setup > Data Export. 3. Select the data to export (GL, AP, AR, projects). 4. Choose format (CSV or Excel). 5. Click Export. 6. Download files. 7. For full backup: Company > Setup > Backup Company Data. 8. Save to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.sage.com/en-ca/sage-business-cloud/intacct/",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["Sage Intacct", "Intacct"],
+          "data_path": null
+        },
+        "macos": {
+          "detect_patterns": ["Sage Intacct", "Intacct"],
+          "data_path": null
+        },
+        "linux": null
+      },
+      "notes": "Cloud-only SaaS. Growing in the Canadian mid-market for non-profits and professional services. Data export through web dashboard. API available at developer.sage.com. Distinct from Sage 50 (desktop product)."
+    },
+    "ShareFile": {
+      "display_name": "ShareFile (Citrix)",
+      "category": "document_management",
+      "data_location": "Cloud-hosted document sharing and storage. Local sync via ShareFile Desktop App in %USERPROFILE%\\ShareFile\\ (Windows) or ~/ShareFile/ (macOS).",
+      "data_types": ["documents", "client_files", "shared_folders", "signatures"],
+      "export_method": "cloud_export",
+      "export_instructions": "1. Log in to ShareFile (secure.sharefile.com) with an admin account. 2. Go to Admin > Data Export. 3. Select folders and files to export. 4. Click Export — ShareFile generates a ZIP download. 5. Download the ZIP file. 6. Copy local ShareFile sync folder to USB as backup. 7. Save all exported files to USB drive.",
+      "has_api_export": true,
+      "has_file_export": true,
+      "vendor_url": "https://www.sharefile.com",
+      "os_specific": {
+        "windows": {
+          "detect_patterns": ["ShareFile", "Citrix ShareFile", "ShareFile Desktop"],
+          "data_path": "%USERPROFILE%\\ShareFile\\"
+        },
+        "macos": {
+          "detect_patterns": ["ShareFile", "Citrix ShareFile"],
+          "data_path": "~/ShareFile/"
+        },
+        "linux": null
+      },
+      "notes": "Cloud-first document sharing platform common in Canadian accounting and financial advisory firms. Local sync via desktop app. Full export must be done from the web dashboard. API available for programmatic export."
+    }
+  }
+}

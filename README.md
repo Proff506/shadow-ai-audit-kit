@@ -15,6 +15,13 @@ Built and field-tested by [elect-rix Technology Solutions](https://elect-rix.tec
 for professional Shadow AI Discovery audits. Released open-source so you can
 verify exactly what it does — and run it yourself.
 
+**This GitHub tree is the public source.** It is not a second product and not
+a substitute for an elect-rix field USB stick. Field sticks carry hashed
+platform binaries (`bin/linux`, `bin/mac`, `bin/windows`) built from this
+code. If a checkout and a stick disagree, trust the hashed stick — or rebuild
+from `scanner.spec` and compare. Do not copy a random clone onto a client USB
+and call it the audit kit.
+
 ## What it finds
 
 - **Browser history** — visits to 80+ known AI services (ChatGPT, Claude,

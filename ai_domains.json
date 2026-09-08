@@ -1,8 +1,14 @@
 {
   "_meta": {
     "version": 1,
-    "updated": "2026-09-08",
-    "description": "AI tool domain watchlist for the Shadow AI Discovery scanner. Entries with scan=false are infrastructure/cloud domains tracked for reference but not reported as Shadow AI findings."
+    "last_updated": "2026-08-05",
+    "description": "Canonical elect-rix domain database. Single source of truth for scanner + gatekeeper.",
+    "consumers": [
+      "usb-audit-kit/ai_domains.json",
+      "gatekeeper-dashboard/egress_domains.json",
+      "gatekeeper-ruleset/gatekeeper-domains.json"
+    ],
+    "merge_rules": "See build-canonical.py docstring. scan=false entries are gatekeeper-only."
   },
   "domains": {
     "aistudio.google.com": {
@@ -27,14 +33,14 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "api.openai.com": {
       "tool": "OpenAI API",
       "category": "api",
       "risk_default": "HIGH",
-      "notes": "Direct API access — may indicate developer usage or integrations.",
+      "notes": "Direct API access \u2014 may indicate developer usage or integrations.",
       "action": "block",
       "label": "OpenAI API"
     },
@@ -58,7 +64,7 @@
       "tool": "Character.ai",
       "category": "consumer_ai",
       "risk_default": "LOW",
-      "notes": "AI character chat — typically personal use.",
+      "notes": "AI character chat \u2014 typically personal use.",
       "action": "block",
       "label": "Character.ai"
     },
@@ -100,7 +106,7 @@
       "category": "cdn",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "cloudsmith.io": {
@@ -109,7 +115,7 @@
       "category": "infrastructure",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "codeium.com": {
@@ -166,14 +172,14 @@
       "category": "infrastructure",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "deepseek.com": {
       "tool": "DeepSeek",
       "category": "consumer_ai",
       "risk_default": "HIGH",
-      "notes": "Chinese AI model. Data sovereignty concern — data may transit China.",
+      "notes": "Chinese AI model. Data sovereignty concern \u2014 data may transit China.",
       "action": "block",
       "label": "DeepSeek"
     },
@@ -191,7 +197,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "drive.google.com": {
@@ -200,7 +206,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "dropbox.com": {
@@ -209,7 +215,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "elevenlabs.io": {
@@ -242,7 +248,7 @@
       "category": "ai_tool",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "fireflies.ai": {
@@ -267,7 +273,7 @@
       "category": "dev_tool",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "githubcopilot.com": {
@@ -292,7 +298,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "monitor",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "grok.com": {
@@ -365,7 +371,7 @@
       "category": "ai_tool",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "merlin.foyer.work": {
@@ -422,7 +428,7 @@
       "category": "infrastructure",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "ollama.com": {
@@ -431,7 +437,7 @@
       "category": "infrastructure",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "onedrive.live.com": {
@@ -440,7 +446,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "openai.com": {
@@ -465,7 +471,7 @@
       "category": "email",
       "risk_default": "LOW",
       "action": "monitor",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "perplexity.ai": {
@@ -570,7 +576,7 @@
       "category": "software_update",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "sider.ai": {
@@ -582,12 +588,12 @@
       "label": "Sider AI extension"
     },
     "slack.com": {
-      "tool": "Slack (internal chat — may have AI features)",
-      "label": "Slack (internal chat — may have AI features)",
+      "tool": "Slack (internal chat \u2014 may have AI features)",
+      "label": "Slack (internal chat \u2014 may have AI features)",
       "category": "monitored_service",
       "risk_default": "LOW",
       "action": "monitor",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "smtp.gmail.com": {
@@ -596,7 +602,7 @@
       "category": "email",
       "risk_default": "LOW",
       "action": "monitor",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "smtp.office365.com": {
@@ -605,7 +611,7 @@
       "category": "monitored_service",
       "risk_default": "LOW",
       "action": "monitor",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "stability.ai": {
@@ -654,7 +660,7 @@
       "category": "software_update",
       "risk_default": "LOW",
       "action": "allow",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "udio.com": {
@@ -671,7 +677,7 @@
       "category": "cloud_storage",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "uploadfiles.io": {
@@ -680,7 +686,7 @@
       "category": "ai_tool",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "wetransfer.com": {
@@ -689,7 +695,7 @@
       "category": "ai_tool",
       "risk_default": "LOW",
       "action": "block",
-      "notes": "Infrastructure entry (not an AI-scan target).",
+      "notes": "Gatekeeper-managed entry (not an AI-scan target).",
       "scan": false
     },
     "wordtune.com": {

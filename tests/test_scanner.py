@@ -6,7 +6,7 @@ verification pass) so they can be re-run automatically before every client
 visit instead of re-verified by hand.
 
 Run with:
-    python3 -m pytest tests/ -v
+    /tmp/h2h/.venv/bin/python -m pytest tests/ -v
 """
 import json
 import sqlite3
@@ -20,6 +20,7 @@ import pytest
 KIT_DIR = Path(__file__).resolve().parent.parent
 SCANNER_PY = KIT_DIR / "scanner.py"
 DOMAINS_JSON = KIT_DIR / "ai_domains.json"
+PRACTICE_SOFTWARE_JSON = KIT_DIR / "practice_software.json"
 
 sys.path.insert(0, str(KIT_DIR))
 import scanner  # noqa: E402  (must come after sys.path manipulation)
@@ -247,7 +248,7 @@ class TestDomainDbIntegrity:
 # ---------------------------------------------------------------------------
 
 class TestDpkgCommaDescription:
-    """field run (2026-08-09): the dpkg line
+    """Field run (2026-08-09): the dpkg line
     'ii  dmz-cursor-theme  0.4.5ubuntu1  all  Style neutral, scalable cursor theme'
     false-positived as Cursor [HIGH]. Root cause: the auto-scan path
     comma-split every command-output line (a CSV hack) and fed the
@@ -290,7 +291,7 @@ class TestDpkgCommaDescription:
 
 
 class TestFirefoxXdgProfilePath:
-    """field run (2026-08-09): Firefox was installed with 1,450 visited
+    """Field run (2026-08-09): Firefox was installed with 1,450 visited
     URLs, but the scanner reported no browser data. Root cause: Linux Firefox
     detection only checked ~/.mozilla/firefox; modern Firefox honors XDG and
     stores profiles at ~/.config/mozilla/firefox. Also, profile dirs are not
