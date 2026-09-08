@@ -60,6 +60,10 @@ Two modes:
   output location, confirm, run. This is the field-audit experience.
 - **Express** — `./audit-kit.py --express --client "Acme" --auditor "Jane"`.
   No prompts; auto-detects everything.
+- **Dry run** — `./audit-kit.py --dry-run`. Lists every file and directory
+  the scanner *would* read on this machine, then exits without reading
+  anything. Use it to confirm scope with the client before touching data
+  on privacy-sensitive engagements (PIPEDA/PHIPA).
 
 Targeted scans via environment variables:
 `AUDITKIT_SKIP_BROWSER=1` or `AUDITKIT_SKIP_SOFTWARE=1`.
@@ -81,7 +85,9 @@ python3 -m pytest tests/ -v
 
 27 tests covering the domain matcher, software inventory parsers, browser
 path detection (including snap and Windows Store-stub edge cases), and
-regressions from real field runs.
+regressions from real field runs. `tests/fixtures-browser-matrix/` carries
+synthetic Chrome/Edge/Brave/Firefox history databases (plus a Safari
+fixture) used for cross-browser regression runs on all three platforms.
 
 ## Building standalone binaries
 
@@ -91,6 +97,10 @@ The kit can ship as a single-file executable (no Python needed on the target):
 pip install pyinstaller
 pyinstaller scanner.spec
 ```
+
+Cross-platform binaries built and verified live from this code:
+Linux x64, Windows 11 x64 (QEMU/KVM), and macOS arm64 (26.3) — see
+`scanner.spec` for the build recipe.
 
 ## Run it yourself — or hire us
 

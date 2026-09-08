@@ -316,7 +316,7 @@ BANNER = r"""
   ║  ╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝     ║
   ║                                             ║
   ║     Shadow AI Discovery Scanner              ║
-  ║     USB Audit Kit  ·  v1.0                  ║
+  ║     USB Audit Kit  ·  v1.1                  ║
   ╚══════════════════════════════════════════╝
 """
 
@@ -640,6 +640,18 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
             print(f"  {Term.dim()}{result.stderr}{Term.reset()}")
         sys.exit(1)
 
+    # A2 fix: a clean exit code does not mean a report was actually written.
+    # If scanner.py crashed silently (e.g. permission error after stdout flush,
+    # or it returned 0 on a missing-input path), `report.json` is absent and
+    # the wizard's "Scan Complete" banner lies. Surface the real failure.
+    report_json = output_dir / "report.json"
+    if not report_json.exists():
+        print(f"\n  {Term.error('Scanner exited 0 but no report.json was written.')}")
+        if result.stderr:
+            print(f"  {Term.dim()}{result.stderr}{Term.reset()}")
+        print(f"  {Term.info('Inspect scanner.log if present, or rerun with --no-color for full output.')}")
+        sys.exit(1)
+
     # Post-scan summary
     print(f"\n  {Term.header('Scan Complete')}  {Term.dim()}({elapsed:.1f}s){Term.reset()}")
     print()
@@ -730,6 +742,69 @@ def open_report(path):
         print(f"  {Term.info(f'Open manually: {path}')}")
 
 
+def dry_run():
+    """A4: List every path the scanner would touch, then exit 0.
+    No reads, no writes — just enumerate. Lets the auditor confirm scope with
+    the client before any data is touched (PIPEDA / PHIPA)."""
+    print_banner()
+    print(f"  {Term.header('DRY RUN — no files will be read, no report will be written.')}")
+    print(f"  {Term.dim()}Walk complete: scanner exits 0 with this list as its only output.{Term.reset()}")
+    print()
+
+    sysinfo = detect_system()
+    browsers = detect_browsers()
+    print(f"  {Term.bold()}Platform:{Term.reset()} {sysinfo['os']} {sysinfo['os_release']}")
+    print(f"  {Term.bold()}Hostname:{Term.reset()} {sysinfo['hostname']}")
+    print(f"  {Term.bold()}User:{Term.reset()}     {sysinfo['username']}")
+    print(f"  {Term.bold()}Browsers:{Term.reset()} {', '.join(browsers) if browsers else '(none detected)'}")
+    print()
+
+    # Reuse the scanner's path-resolution so the dry-run list matches reality.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from scanner import get_browser_paths, get_software_inventory_paths
+    except Exception as e:
+        print(f"  {Term.error(f'Could not import scanner helpers: {e}')}")
+        sys.exit(1)
+
+    print(f"  {Term.header('Browser history DBs that would be opened (read-only copy):')}")
+    any_browser = False
+    for name, src, copy in get_browser_paths():
+        exists = "OK " if src.exists() else "MISS"
+        print(f"    [{exists}] {name:<10} {src}")
+        any_browser = True
+    if not any_browser:
+        print(f"    {Term.dim()}(none found on this system){Term.reset()}")
+
+    print()
+    print(f"  {Term.header('Software inventory sources that would be enumerated:')}")
+    any_sw = False
+    for tup in get_software_inventory_paths():
+        # get_software_inventory_paths returns (method, source, output_type)
+        # where source may be a path (file/dir) or a command string (e.g. "dpkg -l").
+        label = tup[0] if len(tup) > 0 else "?"
+        source = tup[1] if len(tup) > 1 else None
+        if hasattr(source, "exists"):
+            exists = "OK " if source.exists() else "MISS"
+            shown = str(source)
+        elif isinstance(source, str) and source.startswith("/"):
+            exists = "OK " if Path(source).exists() else "MISS"
+            shown = source
+        else:
+            exists = "CMD"
+            shown = source or "(no source)"
+        print(f"    [{exists}] {label:<22} {shown}")
+        any_sw = True
+    if not any_sw:
+        print(f"    {Term.dim()}(none found on this system){Term.reset()}")
+
+    print()
+    print(f"  {Term.dim()}Note: the scanner copies each browser DB to a temp file before")
+    print(f"  {Term.dim()}reading — the source DB is never modified.{Term.reset()}")
+    print()
+    print(f"  {Term.success('Dry run complete. No files were read.')}")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -757,6 +832,10 @@ def main():
     parser.add_argument("--dns-log", help="Path to DNS log file (for --mode dns)")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="List which files/dirs would be read on this machine, then exit "
+                             "without scanning. Use before a real scan on PIPEDA-sensitive "
+                             "engagements to confirm scope with the client.")
 
     args = parser.parse_args()
 
@@ -773,9 +852,18 @@ def main():
         Term._ENABLED = False
 
     if args.version:
-        print("elect-rix AUDIT-KIT v1.0")
+        print("elect-rix AUDIT-KIT v1.1")
         print("Shadow AI Discovery Scanner (SA-1)")
         print("elect-rix Technology Solutions · RixBot Technologies Inc.")
+        sys.exit(0)
+
+    if args.dry_run:
+        # A4: enumerate-only path. No reads, no writes, no scanner invocation.
+        # Refuses to combine with --express/--client — dry-run is its own mode.
+        if args.express or args.client:
+            print(Term.error("--dry-run cannot be combined with --express or --client."))
+            sys.exit(2)
+        dry_run()
         sys.exit(0)
 
     config = load_config()

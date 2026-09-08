@@ -495,8 +495,9 @@ def _scan_chrome_history(path, domain_map, visit_counts, visit_details, browser_
                 except Exception:
                     timestamp = str(visit_time)
                 _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as e:
+            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
+            print(f"    WARN: {browser_name} history schema mismatch ({e}) — browser findings may be incomplete")
         conn.close()
     finally:
         os.unlink(tmp_path)
@@ -516,8 +517,9 @@ def _scan_firefox_history(path, domain_map, visit_counts, visit_details, browser
             cursor.execute("SELECT url, datetime(last_visit_date/1000000, 'unixepoch') FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 50000")
             for url, timestamp in cursor.fetchall():
                 _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as e:
+            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
+            print(f"    WARN: {browser_name} places.sqlite schema mismatch ({e}) — browser findings may be incomplete")
         conn.close()
     finally:
         os.unlink(tmp_path)
