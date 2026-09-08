@@ -487,6 +487,8 @@ def wizard_mode(config):
         ("Browsers only", "Browser history scan only"),
         ("Software only", "Installed software inventory only"),
         ("DNS log file", "Provide a DNS log file to scan"),
+        ("Auto-detect + Document Discovery", "Full scan plus document/data-location manifest"),
+        ("Document Discovery only", "Pre-migration data mapping — no browser/AI scan"),
     ])
 
     # Step 3: Output location
@@ -503,6 +505,8 @@ def wizard_mode(config):
         "Browser history only",
         "Software inventory only",
         "DNS log file",
+        "Auto-detect + Document Discovery",
+        "Document Discovery only",
     ]
     print(f"\n  {Term.step(4, 5, 'Confirm')}")
     print()
@@ -529,7 +533,7 @@ def wizard_mode(config):
 # Express mode
 # ---------------------------------------------------------------------------
 
-def express_mode(config, client_name=None, auditor_name=None, output_dir=None):
+def express_mode(config, client_name=None, auditor_name=None, output_dir=None, mode_idx=0):
     """Fast path: auto-detect everything, minimal interaction."""
     sysinfo = detect_system()
     browsers = detect_browsers()
@@ -559,7 +563,7 @@ def express_mode(config, client_name=None, auditor_name=None, output_dir=None):
     print(f"  {Term.bold()}Output:{Term.reset()}   {output_dir}")
     print()
 
-    run_scan(0, client_name, auditor_name, str(output_dir), browsers, sysinfo)
+    run_scan(mode_idx, client_name, auditor_name, str(output_dir), browsers, sysinfo)
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +600,10 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
     elif mode_idx == 4:  # DNS log
         dns_path = ask("Path to DNS log file")
         scanner_args.extend(["--dns-log", dns_path])
+    elif mode_idx == 5:  # Auto + Document Discovery
+        scanner_args.extend(["--auto", "--docs"])
+    elif mode_idx == 6:  # Document Discovery only
+        scanner_args.append("--docs")
 
     # For modes 2 and 3, we need to tell the scanner to skip the other module.
     env = os.environ.copy()
@@ -616,7 +624,7 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
             env=env,
             capture_output=True,
             text=True,
-            timeout=300,  # 5 min max
+            timeout=600 if mode_idx in (5, 6) else 300,  # docs modes scan whole trees
         )
     except subprocess.TimeoutExpired:
         spinner.stop(Term.error("Scan timed out after 5 minutes."))
@@ -646,6 +654,7 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
     # the wizard's "Scan Complete" banner lies. Surface the real failure.
     report_json = output_dir / "report.json"
     if not report_json.exists():
+        spinner.stop()
         print(f"\n  {Term.error('Scanner exited 0 but no report.json was written.')}")
         if result.stderr:
             print(f"  {Term.dim()}{result.stderr}{Term.reset()}")
@@ -800,7 +809,9 @@ def dry_run():
 
     print()
     print(f"  {Term.dim()}Note: the scanner copies each browser DB to a temp file before")
-    print(f"  {Term.dim()}reading — the source DB is never modified.{Term.reset()}")
+    print(f"  reading — the source DB is never modified. Document Discovery (modes")
+    print(f"  auto-docs / docs) also enumerates mounted network shares and cloud-sync")
+    print(f"  folders under your home directory; run with --mode docs for that list.")
     print()
     print(f"  {Term.success('Dry run complete. No files were read.')}")
 
@@ -827,7 +838,7 @@ def main():
     parser.add_argument("--client", help="Client name (required for express mode)")
     parser.add_argument("--auditor", help="Auditor name (uses saved config if omitted)")
     parser.add_argument("--output-dir", help="Output directory for reports")
-    parser.add_argument("--mode", choices=["auto", "interview", "browsers", "software", "dns"],
+    parser.add_argument("--mode", choices=["auto", "interview", "browsers", "software", "dns", "auto-docs", "docs"],
                         default="auto", help="Scan mode (default: auto)")
     parser.add_argument("--dns-log", help="Path to DNS log file (for --mode dns)")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
@@ -853,7 +864,7 @@ def main():
 
     if args.version:
         print("elect-rix AUDIT-KIT v1.1")
-        print("Shadow AI Discovery Scanner (SA-1)")
+        print("Shadow AI Discovery Scanner (SA-1) + Document Discovery")
         print("elect-rix Technology Solutions · RixBot Technologies Inc.")
         sys.exit(0)
 
@@ -882,9 +893,11 @@ def main():
             "browsers": 2,
             "software": 3,
             "dns": 4,
+            "auto-docs": 5,
+            "docs": 6,
         }
         mode_idx = mode_map.get(args.mode, 0)
-        express_mode(config, args.client, args.auditor, args.output_dir)
+        express_mode(config, args.client, args.auditor, args.output_dir, mode_idx)
     else:
         # Wizard mode
         wizard_mode(config)

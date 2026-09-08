@@ -4,3 +4,7 @@ reports/
 *.pyc
 build/
 dist/
+bin/
+*.exe
+.venv/
+.venv-test/

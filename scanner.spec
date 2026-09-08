@@ -20,6 +20,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('ai_domains.json', '.'),
+        ('practice_software.json', '.'),
         ('report_template.html', '.'),
     ],
     hiddenimports=[],

@@ -26,6 +26,8 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from collections import Counter, defaultdict
 
@@ -38,7 +40,18 @@ if getattr(sys, 'frozen', False):
     # Running as PyInstaller executable — resources are in _MEIPASS
     SCRIPT_DIR = Path(sys._MEIPASS)
 DOMAINS_FILE = SCRIPT_DIR / "ai_domains.json"
+PRACTICE_SOFTWARE_FILE = SCRIPT_DIR / "practice_software.json"
 REPORT_TEMPLATE = SCRIPT_DIR / "report_template.html"
+
+# Drive the kit itself is running from (Windows only). Document Discovery
+# must never enumerate the AUDIT-KIT stick as a "client data location" —
+# anchored to the exe when frozen (sys._MEIPASS is a temp dir on C:),
+# to the script path otherwise.
+if platform.system() == "Windows":
+    _kit_anchor = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve()
+    KIT_DRIVE = _kit_anchor.drive.upper()
+else:
+    KIT_DRIVE = ""
 
 RISK_LEVELS = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 RISK_WEIGHTS = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
@@ -254,6 +267,12 @@ def load_domain_db():
     with open(DOMAINS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
+def load_practice_software_db():
+    """Load the practice management software database (Document Discovery)."""
+    with open(PRACTICE_SOFTWARE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 # ---------------------------------------------------------------------------
 # Finding model
 # ---------------------------------------------------------------------------
@@ -391,7 +410,7 @@ def scan_dns_log(log_path, domain_db):
                     domain = domain.lower().strip(".")
                     for ai_domain, info in domain_map.items():
                         if info.get("scan") is False:
-                            continue  # infrastructure-only entry (cloud storage, OS update, etc.)
+                            continue  # gatekeeper-only entry (infrastructure, cloud storage, etc.)
                         if domain == ai_domain or domain.endswith("." + ai_domain):
                             domain_counts[ai_domain] += 1
                             ts_match = re.match(r'(\d{4}-\d{2}-\d{2}|\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
@@ -555,8 +574,9 @@ def _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_
             cursor.execute("SELECT url, datetime(visit_time + 978307200, 'unixepoch', 'localtime') FROM history_visits JOIN history_items ON history_visits.history_item = history_items.id ORDER BY visit_time DESC LIMIT 50000")
             for url, timestamp in cursor.fetchall():
                 _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as e:
+            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
+            print(f"    WARN: {browser_name} History.db schema mismatch ({e}) — Safari findings may be incomplete")
         conn.close()
     finally:
         os.unlink(tmp_path)
@@ -575,7 +595,7 @@ def _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details):
 
     for ai_domain, info in domain_map.items():
         if info.get("scan") is False:
-            continue  # infrastructure-only entry (cloud storage, OS update, etc.)
+            continue  # gatekeeper-only entry (infrastructure, cloud storage, etc.)
         if (url_lower.startswith(f"https://{ai_domain}") or
             url_lower.startswith(f"http://{ai_domain}") or
             f".{ai_domain}/" in url_lower or
@@ -800,8 +820,13 @@ def interactive_interview():
 # Module 5: Report Generator (unchanged from original)
 # ---------------------------------------------------------------------------
 
-def generate_report(findings, client_name, auditor_name, output_dir, scan_date=None):
-    """Generate HTML, JSON, and CSV reports from findings."""
+def generate_report(findings, client_name, auditor_name, output_dir, scan_date=None, document_discovery=None):
+    """Generate HTML, JSON, and CSV reports from findings.
+
+    `document_discovery`, if provided, is the dict built by
+    _build_document_discovery_report() — it is added to report.json under
+    the `document_discovery` key and written to data_manifest.csv.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -850,6 +875,8 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
         "top_actions": top_actions,
         "findings": [f.to_dict() for f in sorted_findings],
     }
+    if document_discovery is not None:
+        json_report["document_discovery"] = document_discovery
 
     json_path = output_dir / "report.json"
     with open(json_path, "w", encoding="utf-8") as f:
@@ -862,7 +889,29 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
         for finding in sorted_findings:
             writer.writerow([finding.source, finding.tool, finding.category, finding.risk, finding.evidence, finding.notes, finding.timestamp])
 
-    html = _generate_html_report(json_report, sorted_findings, client_name, auditor_name, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap)
+    manifest_path = None
+    if document_discovery is not None:
+        manifest_path = output_dir / "data_manifest.csv"
+        with open(manifest_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Source", "Type", "Name", "Location", "Document_Count", "Total_Size",
+                              "Export_Method", "Export_Instructions", "Access_Status"])
+            for loc in document_discovery["data_locations"]:
+                writer.writerow([
+                    loc["source"], loc["type"], loc["name"], loc["location"],
+                    loc["document_count"] if loc["document_count"] is not None else "—",
+                    loc["total_size_human"], loc["export_method"] or "",
+                    loc["export_instructions"] or "", loc["access_status"],
+                ])
+            for d in document_discovery["practice_software"]:
+                writer.writerow([
+                    "practice_software", "practice_management", d["tool_name"],
+                    d.get("data_location") or "", "—", "—",
+                    d.get("export_method") or "", d.get("export_instructions") or "",
+                    "accessible",
+                ])
+
+    html = _generate_html_report(json_report, sorted_findings, client_name, auditor_name, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap, document_discovery=document_discovery)
     html_path = output_dir / "report.html"
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -879,13 +928,100 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
 
     return {
         "json": str(json_path), "csv": str(csv_path), "html": str(html_path),
+        "data_manifest": str(manifest_path) if manifest_path else None,
         "pdf": str(pdf_path) if pdf_path and pdf_path.exists() else None,
         "total_findings": total_findings, "unique_tools": total_tools,
         "risk_distribution": dict(risk_counts),
     }
 
 
-def _generate_html_report(json_report, findings, client, auditor, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap):
+def _generate_document_discovery_html(dd):
+    """Render the Document Discovery section (Data Manifest + Export Guide)."""
+    if dd is None:
+        return ""
+
+    source_labels = {
+        "local_file_store": "Local", "cloud_sync": "Cloud", "email_store": "Email",
+        "network_share": "Network",
+    }
+
+    manifest_rows = ""
+    for loc in dd["data_locations"]:
+        source_label = source_labels.get(loc["source"], loc["source"])
+        doc_count = f"{loc['document_count']:,}" if loc.get("document_count") is not None else "—"
+        manifest_rows += f"""
+        <tr>
+          <td>{source_label}</td>
+          <td>{loc['type']}</td>
+          <td>{loc['name']}</td>
+          <td>{loc['location']}</td>
+          <td>{doc_count}</td>
+          <td>{loc['total_size_human']}</td>
+          <td>{loc['export_method'] or '—'}</td>
+        </tr>"""
+
+    for d in dd["practice_software"]:
+        manifest_rows += f"""
+        <tr>
+          <td>Practice</td>
+          <td>practice_management</td>
+          <td>{d['tool_name']}</td>
+          <td>{d.get('data_location') or '—'}</td>
+          <td>—</td>
+          <td>—</td>
+          <td>{d.get('export_method') or '—'}</td>
+        </tr>"""
+
+    if not manifest_rows:
+        manifest_rows = "<tr><td colspan='7'>No document locations found — client may be fully cloud-based.</td></tr>"
+
+    dedup_notes = "".join(
+        f"<li>{loc['name']}: {loc['notes']}</li>"
+        for loc in dd["data_locations"]
+        if loc.get("notes") and ("Overlaps with" in loc["notes"] or "deduplicated" in loc["notes"])
+    )
+    dedup_html = (
+        f"<p style='margin-top:12px;font-size:13px;color:#475569'><strong>Note:</strong></p><ul>{dedup_notes}</ul>"
+        if dedup_notes else ""
+    )
+
+    export_guide_html = "".join(
+        f"""
+        <div style="margin-bottom:16px">
+          <strong>{d['tool_name']} detected:</strong>
+          <p style="font-size:13px;color:#475569;margin-top:4px">{d.get('export_instructions') or 'No export instructions available.'}</p>
+          <p style="font-size:13px;color:#475569">Data: {', '.join(d.get('data_types') or []) or 'unknown'}</p>
+        </div>"""
+        for d in dd["practice_software"]
+    ) or "<p style='font-size:13px;color:#475569'>No practice management software detected.</p>"
+
+    summary = dd["summary"]
+    note_html = f"<p style='font-size:13px;color:#475569;margin-bottom:12px'>{dd['note']}</p>" if dd.get("note") else ""
+
+    return f"""
+  <div class="section">
+    <h2>Document Discovery</h2>
+    {note_html}
+    <div class="summary-grid">
+      <div class="summary-card"><div class="number">{summary['total_document_locations']}</div><div class="label">Locations</div></div>
+      <div class="summary-card"><div class="number">{summary['total_documents']:,}</div><div class="label">Total Documents</div></div>
+      <div class="summary-card"><div class="number">{summary['total_size_human']}</div><div class="label">Total Size</div></div>
+      <div class="summary-card"><div class="number">{summary['export_complexity']}</div><div class="label">Export Complexity</div></div>
+    </div>
+
+    <h3 style="margin-top:16px">Data Manifest</h3>
+    <table>
+      <tr><th>Source</th><th>Type</th><th>Name</th><th>Location</th><th>Doc Count</th><th>Total Size</th><th>Export Method</th></tr>
+      {manifest_rows}
+    </table>
+    {dedup_html}
+
+    <h3 style="margin-top:16px">Export Guide</h3>
+    {export_guide_html}
+  </div>"""
+
+
+def _generate_html_report(json_report, findings, client, auditor, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap, document_discovery=None):
     """Generate the HTML report from the template file."""
     risk_badge = {"CRITICAL": "#dc2626", "HIGH": "#ea580c", "MEDIUM": "#ca8a04", "LOW": "#16a34a"}
 
@@ -948,7 +1084,921 @@ def _generate_html_report(json_report, findings, client, auditor, scan_date, ris
         insurance_alert=insurance_alert,
         top_actions_html=top_actions_html,
         findings_rows=findings_rows or "<tr><td colspan='6'>No findings.</td></tr>",
+        document_discovery_html=_generate_document_discovery_html(document_discovery),
     )
+
+
+# ---------------------------------------------------------------------------
+# Document Discovery — shared helpers (DataLocation model, size formatting)
+# ---------------------------------------------------------------------------
+
+def _human_size(num_bytes):
+    """Format a byte count as a human-readable size string (e.g. '8.2 GB')."""
+    try:
+        size = float(num_bytes or 0)
+    except (TypeError, ValueError):
+        size = 0.0
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024.0:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
+
+
+class DataLocation:
+    """A single document data location discovered during Document Discovery."""
+    def __init__(self, source, type, name, location, document_count=0,
+                 document_categories=None, total_size_bytes=0,
+                 last_modified=None, export_method=None,
+                 export_instructions=None, access_status="accessible",
+                 access_error=None, notes=""):
+        self.source = source
+        self.type = type
+        self.name = name
+        self.location = location
+        self.document_count = document_count
+        self.document_categories = document_categories or {}
+        self.total_size_bytes = total_size_bytes
+        self.last_modified = last_modified
+        self.export_method = export_method
+        self.export_instructions = export_instructions
+        self.access_status = access_status
+        self.access_error = access_error
+        self.notes = notes
+
+    def to_dict(self):
+        return {
+            "source": self.source,
+            "type": self.type,
+            "name": self.name,
+            "location": self.location,
+            "document_count": self.document_count,
+            "document_categories": self.document_categories,
+            "total_size_bytes": self.total_size_bytes,
+            "total_size_human": _human_size(self.total_size_bytes),
+            "last_modified": self.last_modified,
+            "export_method": self.export_method,
+            "export_instructions": self.export_instructions,
+            "access_status": self.access_status,
+            "access_error": self.access_error,
+            "notes": self.notes,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Module 6: Document Discovery — Local File Stores (D1)
+# ---------------------------------------------------------------------------
+
+DOCUMENT_EXTENSIONS = {
+    "pdf": [".pdf"],
+    "word": [".docx", ".doc", ".rtf"],
+    "excel": [".xlsx", ".xls"],
+    "markdown": [".md", ".markdown"],
+    "text": [".txt"],
+    "csv": [".csv"],
+    "powerpoint": [".pptx", ".ppt"],
+    "outlook": [".pst", ".ost", ".msg", ".eml"],
+    "accounting": [".qbw", ".qbb", ".qba", ".cas", ".tax"],
+}
+_EXT_TO_CATEGORY = {ext: cat for cat, exts in DOCUMENT_EXTENSIONS.items() for ext in exts}
+MAX_FILES_PER_FOLDER = 500_000
+
+# Overridable module-level roots so tests can redirect discovery away from
+# real system paths (this dev box has real content under /mnt and a live
+# network mount in /proc/mounts — scanning those for real in a test would be
+# slow and non-deterministic).
+LINUX_MOUNT_ROOTS = [Path("/mnt"), Path("/media")]
+MACOS_VOLUMES_ROOT = Path("/Volumes")
+PROC_MOUNTS_PATH = Path("/proc/mounts")
+
+
+def count_documents(folder_path, max_depth=5, timeout=60):
+    """Count documents in a folder by category.
+
+    Walks the tree (no symlink following, hidden dirs skipped) up to
+    max_depth levels, categorizing files by DOCUMENT_EXTENSIONS and summing
+    their sizes. Aborts after `timeout` seconds or MAX_FILES_PER_FOLDER
+    matched+unmatched files, returning partial results either way.
+
+    Returns (counts_by_category, total_size_bytes, last_modified_iso, status)
+    where status is "ok", "timeout", or "truncated".
+    """
+    folder_path = Path(folder_path)
+    counts = {cat: 0 for cat in DOCUMENT_EXTENSIONS}
+    total_size = 0
+    last_modified = None
+    total_files = 0
+    status = "ok"
+    start = time.monotonic()
+    root_depth = len(Path(folder_path).parts)
+
+    for dirpath, dirnames, filenames in os.walk(folder_path, topdown=True, followlinks=False):
+        if time.monotonic() - start > timeout:
+            status = "timeout"
+            break
+
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+
+        depth = len(Path(dirpath).parts) - root_depth
+        if depth >= max_depth:
+            dirnames[:] = []  # do not descend further, but still count files here
+
+        for filename in filenames:
+            if time.monotonic() - start > timeout:
+                status = "timeout"
+                break
+
+            total_files += 1
+            if total_files > MAX_FILES_PER_FOLDER:
+                status = "truncated"
+                break
+
+            fpath = Path(dirpath) / filename
+            try:
+                if fpath.is_symlink():
+                    continue
+                ext = fpath.suffix.lower()
+                cat = _EXT_TO_CATEGORY.get(ext)
+                if not cat:
+                    continue
+                st = fpath.stat()
+            except OSError:
+                continue
+
+            counts[cat] += 1
+            total_size += st.st_size
+            mtime = datetime.datetime.fromtimestamp(st.st_mtime).isoformat()
+            if last_modified is None or mtime > last_modified:
+                last_modified = mtime
+
+        if status in ("timeout", "truncated"):
+            break
+
+    return counts, total_size, last_modified, status
+
+
+def _check_path_access(path, timeout=5):
+    """Check whether `path` exists and is readable without risking a hang.
+
+    A dead network automount (e.g. an unreachable sshfs/cifs mount) can
+    block a plain stat() call indefinitely. The check runs in a daemon
+    thread with a bounded join() — if it doesn't finish in time we treat
+    the path as inaccessible rather than hanging the whole scan.
+
+    Returns one of: "ok", "not_found", "access_denied", "timeout".
+    """
+    result = {}
+
+    def _check():
+        try:
+            if not path.exists():
+                result["status"] = "not_found"
+            elif not os.access(path, os.R_OK):
+                result["status"] = "access_denied"
+            else:
+                result["status"] = "ok"
+        except OSError:
+            result["status"] = "access_denied"
+
+    t = threading.Thread(target=_check, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return "timeout"
+    return result.get("status", "access_denied")
+
+
+def _scan_folder_to_location(source, loc_type, name, location, export_method="USB copy",
+                              max_depth=5, timeout=60, export_instructions=None, notes=""):
+    """Run count_documents() against a folder and wrap the result in a
+    DataLocation. Returns None if the folder does not exist (nothing to
+    report), or a DataLocation with an access_status describing why the
+    folder could not be scanned.
+    """
+    path = Path(location)
+    access = _check_path_access(path)
+    if access == "not_found":
+        return None
+    if access in ("access_denied", "timeout"):
+        return DataLocation(
+            source=source, type=loc_type, name=name, location=str(path),
+            document_count=None, export_method=export_method,
+            export_instructions=export_instructions,
+            access_status="access_denied" if access == "access_denied" else "scan_timeout",
+            access_error=("Permission denied" if access == "access_denied"
+                          else "Path check timed out (possible dead network mount)"),
+            notes=notes,
+        )
+
+    try:
+        counts, total_size, last_modified, status = count_documents(path, max_depth=max_depth, timeout=timeout)
+    except OSError as e:
+        return DataLocation(source=source, type=loc_type, name=name, location=str(path),
+                             access_status="access_denied", access_error=str(e), notes=notes)
+
+    if status == "timeout":
+        notes = (notes + " " if notes else "") + "Scan timed out — results are partial."
+    elif status == "truncated":
+        notes = (notes + " " if notes else "") + "File count exceeded 500,000 — counts are partial (500K+)."
+
+    return DataLocation(
+        source=source, type=loc_type, name=name, location=str(path),
+        document_count=sum(counts.values()), document_categories=counts,
+        total_size_bytes=total_size, last_modified=last_modified,
+        export_method=export_method, export_instructions=export_instructions,
+        access_status="accessible", notes=notes,
+    )
+
+
+def _windows_drive_letters():
+    """List filesystem drive letters on Windows (e.g. ['C:', 'D:'])."""
+    drives = []
+    if shutil.which("powershell"):
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    line = line.strip().rstrip("\\")
+                    if re.match(r'^[A-Za-z]:$', line):
+                        drives.append(line)
+        except Exception:
+            pass
+    if not drives:
+        import string
+        for letter in string.ascii_uppercase:
+            if Path(f"{letter}:\\").exists():
+                drives.append(f"{letter}:")
+    return drives
+
+
+def _scan_windows_network_shares():
+    """Detect mapped SMB drives via Get-SmbMapping (PowerShell), falling
+    back to `net use` (cmd.exe) if PowerShell is unavailable or fails."""
+    shares = []
+    if shutil.which("powershell"):
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-SmbMapping | ForEach-Object { \"$($_.LocalPath)|$($_.RemotePath)\" }"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if "|" in line:
+                        local, remote = line.split("|", 1)
+                        if local:
+                            shares.append((local, remote, "cifs"))
+                if shares:
+                    return shares
+        except Exception:
+            pass
+    try:
+        result = subprocess.run(["net", "use"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                m = re.match(r'^(OK|Disconnected)\s+(\w:)\s+(\\\\\S+)', line.strip())
+                if m:
+                    _status, drive, unc = m.groups()
+                    shares.append((drive, unc, "cifs"))
+    except Exception:
+        pass
+    return shares
+
+
+def _scan_mount_output_shares(fs_types):
+    """Parse `mount` command output (macOS/Linux) for network filesystem types."""
+    shares = []
+    try:
+        result = subprocess.run(["mount"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                m = re.match(r'^(\S+)\s+on\s+(\S.*?)\s+\(([^)]+)\)', line)
+                if not m:
+                    continue
+                device, mount_point, opts = m.groups()
+                fstype = opts.split(",")[0].strip()
+                if fstype in fs_types:
+                    shares.append((mount_point, device, fstype))
+    except Exception:
+        pass
+    return shares
+
+
+LINUX_NETWORK_FS_TYPES = {"cifs", "nfs", "nfs4", "smbfs", "sshfs", "davfs"}
+# Desktop-integration FUSE mounts (gvfs, portal, snap) are not remote data
+# stores — only flag FUSE filesystems that are actually network clients.
+LINUX_FUSE_NETWORK_PREFIXES = ("fuse.sshfs", "fuse.rclone", "fuse.google-drive-ocamlfuse", "fuse.davfs")
+
+
+def _scan_linux_network_shares():
+    """Parse /proc/mounts for cifs/nfs/sshfs/fuse network filesystem mounts."""
+    shares = []
+    seen = set()
+    try:
+        with open(PROC_MOUNTS_PATH, "r", errors="replace") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                device, mount_point, fstype = parts[0], parts[1], parts[2]
+                if fstype in LINUX_NETWORK_FS_TYPES or fstype.startswith(LINUX_FUSE_NETWORK_PREFIXES):
+                    if mount_point in seen:
+                        continue
+                    seen.add(mount_point)
+                    shares.append((mount_point, device, fstype))
+    except OSError:
+        pass
+    return shares
+
+
+def _scan_network_shares(max_depth=5, timeout=60):
+    """Module D1 §4.1.5: mounted network shares across all OSes."""
+    if IS_WINDOWS:
+        raw_shares = _scan_windows_network_shares()
+    elif IS_MAC:
+        raw_shares = _scan_mount_output_shares(fs_types={"smbfs", "nfs", "afpfs"})
+    else:
+        raw_shares = _scan_linux_network_shares()
+
+    locations = []
+    for mount_point, server_path, fstype in raw_shares:
+        print(f"[docs] Checking network share {mount_point} ({fstype})...")
+        loc_type = "smb_share" if fstype in ("cifs", "smbfs", "smb") else "network_mount"
+        name = f"{fstype.upper()} share at {mount_point}"
+        location = server_path or str(mount_point)
+
+        # A share already present in the mount table "exists" by definition —
+        # unlike a plain candidate folder, a not_found/timeout result here
+        # means "currently unreachable" (e.g. a disconnected mapped drive or
+        # a dead sshfs host), not "nothing to report". Record it either way.
+        access = _check_path_access(Path(mount_point))
+        if access != "ok":
+            locations.append(DataLocation(
+                source="network_share", type=loc_type, name=name, location=location,
+                document_count=None, export_method="network rsync",
+                access_status="scan_timeout" if access == "timeout" else "access_denied",
+                access_error=("Path check timed out (possible dead network mount)" if access == "timeout"
+                              else "Share not accessible (disconnected or permission denied)"),
+                notes=f"Filesystem type: {fstype}.",
+            ))
+            continue
+
+        loc = _scan_folder_to_location(
+            "network_share", loc_type, name, mount_point,
+            export_method="network rsync", max_depth=max_depth, timeout=timeout,
+            notes=f"Filesystem type: {fstype}. Server path: {server_path or 'unknown'}",
+        )
+        if loc:
+            loc.location = location
+            locations.append(loc)
+    return locations
+
+
+def scan_local_file_stores(max_depth=5, timeout=60):
+    """Module D1: local document folders + mounted network shares."""
+    locations = []
+    folder_specs = []  # list of (name, path)
+
+    if IS_WINDOWS:
+        folder_specs.append(("Documents folder", HOME / "Documents"))
+        folder_specs.append(("Desktop", HOME / "Desktop"))
+        folder_specs.append(("Downloads folder", HOME / "Downloads"))
+        onedrive = HOME / "OneDrive"
+        if onedrive.exists():
+            folder_specs.append(("OneDrive folder", onedrive))
+        for drive in _windows_drive_letters():
+            if drive.upper() == KIT_DRIVE:
+                continue  # never scan the audit kit's own USB drive
+            for sub in ("Documents", "Shared"):
+                p = Path(f"{drive}\\{sub}")
+                if p not in (HOME / sub,):
+                    folder_specs.append((f"{drive}\\{sub}", p))
+    elif IS_MAC:
+        folder_specs.append(("Documents folder", HOME / "Documents"))
+        folder_specs.append(("Desktop", HOME / "Desktop"))
+        folder_specs.append(("Downloads folder", HOME / "Downloads"))
+        folder_specs.append(("iCloud Mobile Documents", HOME / "Library/Mobile Documents"))
+        if MACOS_VOLUMES_ROOT.exists():
+            try:
+                for vol in MACOS_VOLUMES_ROOT.iterdir():
+                    if vol.is_dir():
+                        folder_specs.append((f"Volume: {vol.name}", vol))
+            except OSError:
+                pass
+    else:  # Linux
+        folder_specs.append(("Documents folder", HOME / "Documents"))
+        folder_specs.append(("Desktop", HOME / "Desktop"))
+        folder_specs.append(("Downloads folder", HOME / "Downloads"))
+        folder_specs.append(("shared folder", HOME / "shared"))
+        for base in LINUX_MOUNT_ROOTS:
+            if base.exists():
+                try:
+                    for vol in base.iterdir():
+                        # lost+found is a filesystem journal artifact, not a data location
+                        if vol.is_dir() and vol.name != "lost+found":
+                            folder_specs.append((f"Mounted: {vol}", vol))
+                except OSError:
+                    pass
+
+    for name, path in folder_specs:
+        print(f"[docs] Scanning {name}...")
+        loc = _scan_folder_to_location("local_file_store", "documents", name, path,
+                                        export_method="USB copy", max_depth=max_depth, timeout=timeout)
+        if loc:
+            if loc.access_status == "accessible":
+                print(f"[docs]   {loc.document_count:,} files found ({_human_size(loc.total_size_bytes)})")
+            locations.append(loc)
+
+    locations.extend(_scan_network_shares(max_depth=max_depth, timeout=timeout))
+    return locations
+
+
+# ---------------------------------------------------------------------------
+# Module 7: Document Discovery — Cloud Sync Folders (D2)
+# ---------------------------------------------------------------------------
+
+CLOUD_SYNC_SERVICES = {
+    "Google Drive": {
+        "export_method": "Google Takeout",
+        "export_instructions": "Log in at takeout.google.com, select Drive, create an export, and download the ZIP when ready.",
+    },
+    "OneDrive": {
+        "export_method": "OneDrive download",
+        "export_instructions": "Sign in at onedrive.microsoft.com > Settings > Backup > Download all files as ZIP.",
+    },
+    "Dropbox": {
+        "export_method": "Dropbox download",
+        "export_instructions": "Sign in at dropbox.com, select all files, Download as ZIP (or copy the local sync folder directly).",
+    },
+    "iCloud Drive": {
+        "export_method": "iCloud download",
+        "export_instructions": "Sign in at icloud.com > Drive, download files (or copy the local sync folder directly).",
+    },
+    "Box": {
+        "export_method": "Box download",
+        "export_instructions": "Sign in at app.box.com, select all files, Download as ZIP (or copy the local sync folder directly).",
+    },
+}
+
+
+def _cloud_sync_candidates():
+    """Return (service, name, path) candidate cloud sync folders for this OS."""
+    candidates = []
+    if IS_WINDOWS:
+        candidates.append(("Google Drive", "Google Drive", HOME / "Google Drive"))
+        candidates.append(("Google Drive", "Google Drive", HOME / "GoogleDrive"))
+        candidates.append(("OneDrive", "OneDrive", HOME / "OneDrive"))
+        for p in HOME.glob("OneDrive - *"):
+            candidates.append(("OneDrive", f"OneDrive ({p.name})", p))
+        candidates.append(("Dropbox", "Dropbox", HOME / "Dropbox"))
+        for p in HOME.glob("Dropbox (*)"):
+            candidates.append(("Dropbox", f"Dropbox ({p.name})", p))
+        candidates.append(("Box", "Box Sync", HOME / "Box Sync"))
+    elif IS_MAC:
+        candidates.append(("Google Drive", "Google Drive", HOME / "Google Drive"))
+        cloud_storage = HOME / "Library/CloudStorage"
+        if cloud_storage.exists():
+            for p in cloud_storage.glob("OneDrive*"):
+                candidates.append(("OneDrive", f"OneDrive ({p.name})", p))
+        candidates.append(("Dropbox", "Dropbox", HOME / "Dropbox"))
+        for p in HOME.glob("Dropbox (*)"):
+            candidates.append(("Dropbox", f"Dropbox ({p.name})", p))
+        candidates.append(("iCloud Drive", "iCloud Drive",
+                           HOME / "Library/Mobile Documents/com~apple~CloudDocs"))
+        candidates.append(("Box", "Box Sync", HOME / "Box Sync"))
+    else:  # Linux
+        candidates.append(("Google Drive", "Google Drive", HOME / "Google Drive"))
+        candidates.append(("OneDrive", "OneDrive", HOME / "OneDrive"))
+        candidates.append(("Dropbox", "Dropbox", HOME / "Dropbox"))
+        candidates.append(("Dropbox", "Dropbox", HOME / ".dropbox"))
+    return candidates
+
+
+def scan_cloud_sync_folders(max_depth=5, timeout=60):
+    """Module D2: desktop cloud sync folders (Google Drive, OneDrive,
+    Dropbox, iCloud, Box). Detection is by local folder presence only —
+    no network calls are made."""
+    locations = []
+    seen_paths = set()
+
+    for service, name, path in _cloud_sync_candidates():
+        try:
+            if not path.is_dir():
+                continue
+            real = path.resolve()
+        except OSError:
+            continue
+        if real in seen_paths:
+            continue
+        seen_paths.add(real)
+
+        print(f"[docs] Scanning {name}...")
+        info = CLOUD_SYNC_SERVICES[service]
+        try:
+            has_files = next(path.iterdir(), None) is not None
+        except OSError:
+            has_files = False
+        loc = _scan_folder_to_location(
+            "cloud_sync", "cloud_sync_folder", name, path,
+            export_method=info["export_method"], max_depth=max_depth, timeout=timeout,
+            export_instructions=info["export_instructions"],
+            notes="Synced locally." if has_files else "",
+        )
+        if loc:
+            if loc.access_status == "accessible":
+                print(f"[docs]   {loc.document_count:,} files found ({_human_size(loc.total_size_bytes)})")
+            locations.append(loc)
+
+    return locations
+
+
+# ---------------------------------------------------------------------------
+# Module 8: Document Discovery — Email Stores (D3)
+# ---------------------------------------------------------------------------
+
+EMAIL_EXPORT_INSTRUCTIONS = {
+    "Outlook PST": "Copy the .pst/.ost file directly (safe even while Outlook is running — we only stat the file, never open it). For a guided export, use Outlook > File > Open & Export > Import/Export.",
+    "Apple Mail": "Copy the ~/Library/Mail directory, or use Mail > Mailbox > Export Mailbox for a portable .mbox.",
+    "Thunderbird": "Copy the profile's Mail/ (and ImapMail/) folders, or use an add-on such as ImportExportTools NG to export mbox/eml.",
+    "Mbox": "Copy the .mbox file/directory directly — it is a portable, standard mail store format.",
+}
+
+
+def _email_file_location(label, loc_type, path):
+    """Build a DataLocation for a single email store file (PST/OST). Only
+    stat()s the file — never opens or reads it."""
+    try:
+        st = path.stat()
+        size = st.st_size
+        mtime = datetime.datetime.fromtimestamp(st.st_mtime).isoformat()
+        access_status = "accessible"
+        error = None
+    except OSError as e:
+        size = 0
+        mtime = None
+        access_status = "access_denied"
+        error = str(e)
+    return DataLocation(
+        source="email_store", type=loc_type, name=label, location=str(path),
+        document_count=1, total_size_bytes=size, last_modified=mtime,
+        export_method="Copy .pst/.ost file",
+        export_instructions=EMAIL_EXPORT_INSTRUCTIONS["Outlook PST"],
+        access_status=access_status, access_error=error,
+    )
+
+
+def scan_email_stores(max_depth=5, timeout=60):
+    """Module D3: identify email data stores. Never opens or parses email
+    contents — files are stat'd for path, size, and last-modified only."""
+    locations = []
+
+    if IS_WINDOWS:
+        for base in filter(None, [os.environ.get("LOCALAPPDATA"), os.environ.get("APPDATA")]):
+            outlook_dir = Path(base) / "Microsoft/Outlook"
+            if not outlook_dir.exists():
+                continue
+            for ext, label in ((".pst", "Outlook PST"), (".ost", "Outlook OST")):
+                for f in outlook_dir.glob(f"*{ext}"):
+                    print(f"[docs] Checking email stores... {label} found ({_human_size(f.stat().st_size)})")
+                    locations.append(_email_file_location(label, "email_pst", f))
+
+    elif IS_MAC:
+        mail_dir = HOME / "Library/Mail"
+        if mail_dir.exists():
+            print("[docs] Checking email stores...")
+            try:
+                emlx_count = sum(1 for _ in mail_dir.rglob("*.emlx"))
+                total_size = sum(f.stat().st_size for f in mail_dir.rglob("*") if f.is_file())
+                locations.append(DataLocation(
+                    source="email_store", type="email_apple_mail", name="Apple Mail",
+                    location=str(mail_dir), document_count=emlx_count,
+                    total_size_bytes=total_size, export_method="Copy Mail directory",
+                    export_instructions=EMAIL_EXPORT_INSTRUCTIONS["Apple Mail"],
+                    access_status="accessible", notes=f"{emlx_count} .emlx message files.",
+                ))
+            except PermissionError:
+                locations.append(DataLocation(
+                    source="email_store", type="email_apple_mail", name="Apple Mail",
+                    location=str(mail_dir), document_count=None, access_status="access_denied",
+                    access_error="Full Disk Access required to read ~/Library/Mail. Grant it in "
+                                 "System Settings > Privacy & Security > Full Disk Access.",
+                ))
+
+        outlook_mac = HOME / "Library/Group Containers/UBF8T346G9.Office/Outlook"
+        if outlook_mac.exists():
+            try:
+                msg_files = list(outlook_mac.rglob("*.olk15message"))
+                total_size = sum(f.stat().st_size for f in msg_files)
+                locations.append(DataLocation(
+                    source="email_store", type="email_pst", name="Outlook (Mac)",
+                    location=str(outlook_mac), document_count=len(msg_files),
+                    total_size_bytes=total_size, export_method="Copy Outlook data directory",
+                    export_instructions=EMAIL_EXPORT_INSTRUCTIONS["Outlook PST"],
+                    access_status="accessible",
+                ))
+            except PermissionError:
+                pass
+
+    # Thunderbird — all OSes
+    if IS_WINDOWS:
+        appdata = os.environ.get("APPDATA")
+        tb_base = Path(appdata) / "Thunderbird/Profiles" if appdata else None
+    elif IS_MAC:
+        tb_base = HOME / "Library/Thunderbird/Profiles"
+    else:
+        tb_base = HOME / ".thunderbird"
+
+    if tb_base and tb_base.exists():
+        try:
+            profiles = [p for p in tb_base.iterdir() if p.is_dir()]
+        except OSError:
+            profiles = []
+        for profile in profiles:
+            mail_subdir = profile / "Mail"
+            prefs = profile / "prefs.js"
+            if not (prefs.exists() or mail_subdir.exists()):
+                continue
+            print(f"[docs] Checking email stores... Thunderbird profile ({profile.name})")
+            loc = _scan_folder_to_location(
+                "email_store", "email_mbox", f"Thunderbird ({profile.name})",
+                mail_subdir if mail_subdir.exists() else profile,
+                export_method="Copy profile Mail folder", max_depth=max_depth, timeout=timeout,
+                export_instructions=EMAIL_EXPORT_INSTRUCTIONS["Thunderbird"],
+            )
+            if loc:
+                locations.append(loc)
+
+    # Generic mbox files in common locations
+    seen_mbox = set()
+    for root in (HOME / "Mail", HOME / "Documents", HOME):
+        if not root.exists():
+            continue
+        try:
+            candidates = list(root.glob("*.mbox"))
+        except OSError:
+            continue
+        for f in candidates:
+            if f in seen_mbox:
+                continue
+            seen_mbox.add(f)
+            try:
+                st = f.stat()
+            except OSError:
+                continue
+            print(f"[docs] Checking email stores... Mbox found ({_human_size(st.st_size)})")
+            locations.append(DataLocation(
+                source="email_store", type="email_mbox", name=f"Mbox: {f.name}",
+                location=str(f), document_count=None, total_size_bytes=st.st_size,
+                last_modified=datetime.datetime.fromtimestamp(st.st_mtime).isoformat(),
+                export_method="Copy mbox file",
+                export_instructions=EMAIL_EXPORT_INSTRUCTIONS["Mbox"],
+                access_status="accessible",
+            ))
+
+    return locations
+
+
+# ---------------------------------------------------------------------------
+# Module 9: Document Discovery — Practice Management Software (D4)
+# ---------------------------------------------------------------------------
+
+# LEAP's only bare-word pattern was replaced with two-word patterns in
+# practice_software.json; this set exists to reject any future single-word
+# detect pattern that is a common English word, per DOCUMENT-DISCOVERY-SPEC
+# §4.4. Short, non-dictionary brand tokens (Clio, Xero, MyCase) are exempt.
+_COMMON_ENGLISH_WORDS = {
+    "leap", "box", "drive", "share", "cloud", "desktop", "grow", "works",
+    "mail", "tax", "file", "note", "task", "time", "form", "plan", "view",
+    "work", "law", "legal", "practice", "manage", "management", "account",
+    "accounting", "office", "team", "teams", "sync", "backup", "export",
+    "import", "print", "scan", "book", "books", "pay", "bill", "billing",
+    "case", "cases", "client", "clients", "matter", "matters", "document",
+    "documents", "data", "smart", "simple", "easy", "quick", "pro", "plus",
+    "online", "digital", "connect", "central", "hub", "suite", "system",
+    "systems", "solution", "solutions", "app", "apps", "web", "site",
+    "server", "network", "secure", "safe", "vault", "store", "storage",
+}
+
+# Tools whose D2 cloud-sync equivalent already covers them — do not
+# double-detect as D4 "practice management" noise (spec §4.4.2).
+_D4_CLOUD_SYNC_OVERLAP_TOOLS = {"Microsoft 365", "Google Workspace"}
+
+
+def _is_dictionary_word_pattern(pattern):
+    """Reject single-word detect patterns that are common English words
+    (e.g. bare 'LEAP') to avoid false-positive matches. Multi-word patterns
+    and short non-dictionary brand tokens ('Clio', 'Xero') are allowed."""
+    words = pattern.strip().split()
+    if len(words) != 1:
+        return False
+    return words[0].lower() in _COMMON_ENGLISH_WORDS
+
+
+def _match_practice_software(text, tools_map, detected, os_key=None):
+    """Match a software inventory line against practice_software.json tools.
+
+    Mirrors _match_software's word-boundary / dpkg-package-name matching,
+    but reads os_specific.<os>.detect_patterns instead of a flat name key,
+    and rejects dictionary-word patterns per DOCUMENT-DISCOVERY-SPEC §4.4.
+    `os_key` defaults to the running OS but can be overridden (tests only).
+    """
+    if not text or not text.strip():
+        return
+
+    text_lower = text.lower().strip()
+
+    dpkg = re.match(r'^(?:ii|hi|rc|un|iU|iF)\s+(\S+)', text_lower)
+    if dpkg:
+        haystacks = [dpkg.group(1).split(":", 1)[0]]
+        dpkg_mode = True
+    else:
+        haystacks = [text_lower]
+        dpkg_mode = False
+
+    if os_key is None:
+        os_key = "windows" if IS_WINDOWS else "macos" if IS_MAC else "linux"
+
+    for tool_name, tool_info in tools_map.items():
+        os_info = (tool_info.get("os_specific") or {}).get(os_key)
+        if not os_info:
+            continue
+
+        matched = False
+        for pattern in os_info.get("detect_patterns") or []:
+            if _is_dictionary_word_pattern(pattern):
+                continue
+            pat_lower = pattern.lower()
+
+            for hay in haystacks:
+                if dpkg_mode:
+                    if hay == pat_lower or hay.startswith(pat_lower + "-") or hay.startswith(pat_lower + "."):
+                        matched = True
+                        break
+                    continue
+                boundary_pattern = rf'(?<![a-z0-9]){re.escape(pat_lower)}(?![a-z0-9])'
+                if re.search(boundary_pattern, hay):
+                    matched = True
+                    break
+            if matched:
+                break
+
+        if matched:
+            detected.add((tool_name, text))
+
+
+def scan_practice_software(practice_db):
+    """Module D4: detect installed practice management software.
+
+    Reuses the software inventory gathering from
+    scan_software_inventory_auto() (same OS-specific sources), but matches
+    against practice_software.json via _match_practice_software() instead
+    of ai_domains.json's software_names.
+    """
+    detections = []
+    tools_map = practice_db.get("tools", {})
+    detected = set()
+    sources = get_software_inventory_paths()
+
+    for method, source, output_type in sources:
+        try:
+            if method == "file":
+                app_dir = Path(source)
+                if app_dir.exists():
+                    for item in app_dir.iterdir():
+                        _match_practice_software(item.stem, tools_map, detected)
+            elif method == "command":
+                result = subprocess.run(
+                    source, shell=isinstance(source, str),
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0 and result.stdout:
+                    for line in result.stdout.splitlines():
+                        if output_type == "dpkg":
+                            line_clean = line.strip()
+                        else:
+                            line_clean = line.strip().strip('"').split(",")[-1].strip()
+                        _match_practice_software(line_clean, tools_map, detected)
+        except Exception as e:
+            print(f"    warn: {output_type} scan failed: {e}")
+
+    for tool_name, raw_line in sorted(detected):
+        if tool_name in _D4_CLOUD_SYNC_OVERLAP_TOOLS:
+            continue
+        info = tools_map[tool_name]
+        print(f"[docs] Checking practice software... {info['display_name']} detected")
+        detections.append({
+            "tool_name": info["display_name"],
+            "detected_from": f"{tool_name} (detected from: '{raw_line}')",
+            "install_path": None,
+            "data_location": info.get("data_location"),
+            "export_method": info.get("export_method"),
+            "export_instructions": info.get("export_instructions"),
+            "data_types": info.get("data_types", []),
+            "has_api_export": info.get("has_api_export", False),
+            "has_file_export": info.get("has_file_export", False),
+            "vendor_url": info.get("vendor_url"),
+            "notes": info.get("notes", ""),
+        })
+
+    return detections
+
+
+# ---------------------------------------------------------------------------
+# Module 10: Document Discovery — Deduplication Pass (D5)
+# ---------------------------------------------------------------------------
+
+def _dedup_overlaps(local_locations, cloud_locations):
+    """Subtract cloud sync folder counts from any containing local file
+    store, to avoid double-counting (e.g. OneDrive synced inside
+    Documents). Mutates both lists in place and adds notes to each side.
+    Returns the number of overlaps adjusted.
+    """
+    adjustments = 0
+    for cloud in cloud_locations:
+        try:
+            cloud_path = Path(cloud.location).resolve()
+        except OSError:
+            continue
+
+        for local in local_locations:
+            try:
+                local_path = Path(local.location).resolve()
+            except OSError:
+                continue
+            if cloud_path == local_path or not cloud_path.is_relative_to(local_path):
+                continue
+
+            local.document_count = max(0, (local.document_count or 0) - (cloud.document_count or 0))
+            for cat, count in cloud.document_categories.items():
+                if cat in local.document_categories:
+                    local.document_categories[cat] = max(0, local.document_categories[cat] - count)
+            local.total_size_bytes = max(0, (local.total_size_bytes or 0) - (cloud.total_size_bytes or 0))
+            local.notes = (local.notes + " " if local.notes else "") + (
+                f"Overlaps with {cloud.name} sync folder "
+                f"({cloud.document_count or 0:,} docs, {_human_size(cloud.total_size_bytes)} subtracted)."
+            )
+            cloud.notes = (cloud.notes + " " if cloud.notes else "") + (
+                f"Located inside {local.name} — deduplicated from local count."
+            )
+            adjustments += 1
+            break  # a cloud folder overlaps at most one containing local store
+
+    return adjustments
+
+
+def _build_document_discovery_report(all_locations, practice_detections,
+                                      modules_run, modules_skipped, dedup_adjustments):
+    """Assemble the document_discovery report.json object (spec §5.3)."""
+    cloud_services = sorted({l.name for l in all_locations if l.source == "cloud_sync"})
+    email_stores = sorted({l.name for l in all_locations if l.source == "email_store"})
+    practice_names = sorted({d["tool_name"] for d in practice_detections})
+
+    total_documents = sum(l.document_count or 0 for l in all_locations)
+    total_size = sum(l.total_size_bytes or 0 for l in all_locations)
+
+    if len(all_locations) > 5 or len(practice_names) > 2:
+        complexity = "complex"
+    elif len(all_locations) > 2 or practice_names:
+        complexity = "moderate"
+    else:
+        complexity = "simple"
+
+    summary = {
+        "total_document_locations": len(all_locations),
+        "total_documents": total_documents,
+        "total_size_human": _human_size(total_size),
+        "cloud_services_detected": cloud_services,
+        "email_stores_detected": email_stores,
+        "practice_software_detected": practice_names,
+        "dedup_adjustments": dedup_adjustments,
+        "export_complexity": complexity,
+    }
+
+    architecture_sketch = {
+        "local": [f"{l.name} ({l.document_count or 0:,} docs, {_human_size(l.total_size_bytes)})"
+                  for l in all_locations if l.source in ("local_file_store", "network_share")],
+        "cloud": [f"{l.name} (synced locally)" for l in all_locations if l.source == "cloud_sync"],
+        "email": [f"{l.name} at {l.location} ({_human_size(l.total_size_bytes)})"
+                  for l in all_locations if l.source == "email_store"],
+    }
+
+    report = {
+        "scan_date": datetime.datetime.now().isoformat(),
+        "modules_run": modules_run,
+        "modules_skipped": modules_skipped,
+        "data_locations": [l.to_dict() for l in all_locations],
+        "practice_software": practice_detections,
+        "summary": summary,
+        "architecture_sketch": architecture_sketch,
+    }
+    if not all_locations:
+        report["note"] = "No local document stores found — client may be fully cloud-based."
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -1003,14 +2053,25 @@ Interactive Interview:
     parser.add_argument("--interview-data", help="Path to pre-recorded interview JSON")
     parser.add_argument("--output-dir", default="./reports", help="Output directory for reports")
     parser.add_argument("--domain-db", help="Path to custom AI domains JSON")
+    parser.add_argument("--docs", action="store_true",
+                        help="Run Document Discovery modules (local/cloud/email stores, practice software)")
+    parser.add_argument("--practice-db", help="Path to custom practice_software.json (default: bundled)")
+    parser.add_argument("--docs-depth", type=int, default=5,
+                        help="Folder recursion depth for Document Discovery (default: 5, max: 10)")
+    parser.add_argument("--docs-timeout", type=int, default=60,
+                        help="Per-folder scan timeout in seconds for Document Discovery (default: 60)")
+    parser.add_argument("--docs-total-timeout", type=int, default=300,
+                        help="Total timeout for all Document Discovery modules in seconds (default: 300)")
 
     args = parser.parse_args()
 
     # Load domain database
-    global DOMAINS_FILE
+    global DOMAINS_FILE, PRACTICE_SOFTWARE_FILE
     if args.domain_db:
         DOMAINS_FILE = Path(args.domain_db)
     domain_db = load_domain_db()
+    if args.practice_db:
+        PRACTICE_SOFTWARE_FILE = Path(args.practice_db)
 
     # Initialize finding store
     output_dir = Path(args.output_dir)
@@ -1042,6 +2103,7 @@ Interactive Interview:
     # Check for module-skip env vars (set by audit-kit.py for targeted scans)
     skip_browser = os.environ.get("AUDITKIT_SKIP_BROWSER") == "1"
     skip_software = os.environ.get("AUDITKIT_SKIP_SOFTWARE") == "1"
+    run_docs = (args.docs or os.environ.get("AUDITKIT_DOCS") == "1") and os.environ.get("AUDITKIT_SKIP_DOCS") != "1"
 
     # Module 1: DNS scanning
     if args.dns_log:
@@ -1174,25 +2236,115 @@ Interactive Interview:
         print(f"  Processed {len(interviews)} interview(s).")
         print()
 
+    # Modules 6-10: Document Discovery (D1-D5) — local/cloud/email stores,
+    # practice software, and deduplication. Runs on --docs (alone or with
+    # --auto); skipped entirely otherwise so existing scanner behavior is
+    # unchanged when --docs is absent.
+    document_discovery_report = None
+    if run_docs:
+        docs_depth = min(max(args.docs_depth, 1), 10)
+        docs_timeout = args.docs_timeout
+        docs_total_timeout = args.docs_total_timeout
+        docs_start = time.monotonic()
+
+        def _docs_time_left():
+            return docs_total_timeout - (time.monotonic() - docs_start)
+
+        print("[docs] Starting Document Discovery...")
+        modules_run, modules_skipped = [], []
+        local_locations, cloud_locations, email_locations, practice_detections = [], [], [], []
+
+        try:
+            if _docs_time_left() > 0:
+                local_locations = scan_local_file_stores(max_depth=docs_depth, timeout=docs_timeout)
+                modules_run.append("local_file_stores")
+            else:
+                modules_skipped.append("local_file_stores")
+        except Exception as e:
+            print(f"  warn: local file store scan failed: {e}")
+            modules_skipped.append("local_file_stores")
+
+        try:
+            if _docs_time_left() > 0:
+                cloud_locations = scan_cloud_sync_folders(max_depth=docs_depth, timeout=docs_timeout)
+                modules_run.append("cloud_sync")
+            else:
+                modules_skipped.append("cloud_sync")
+        except Exception as e:
+            print(f"  warn: cloud sync scan failed: {e}")
+            modules_skipped.append("cloud_sync")
+
+        try:
+            if _docs_time_left() > 0:
+                email_locations = scan_email_stores(max_depth=docs_depth, timeout=docs_timeout)
+                modules_run.append("email_stores")
+            else:
+                modules_skipped.append("email_stores")
+        except Exception as e:
+            print(f"  warn: email store scan failed: {e}")
+            modules_skipped.append("email_stores")
+
+        try:
+            if _docs_time_left() > 0:
+                practice_db = load_practice_software_db()
+                practice_detections = scan_practice_software(practice_db)
+                modules_run.append("practice_software")
+            else:
+                modules_skipped.append("practice_software")
+        except Exception as e:
+            print(f"  warn: practice software scan failed: {e}")
+            modules_skipped.append("practice_software")
+
+        dedup_adjustments = 0
+        try:
+            dedup_adjustments = _dedup_overlaps(local_locations, cloud_locations)
+            modules_run.append("deduplication")
+            for cloud in cloud_locations:
+                if "deduplicated" in (cloud.notes or ""):
+                    print(f"[docs] Deduplication: {cloud.name} overlaps a local store — adjusted")
+        except Exception as e:
+            print(f"  warn: deduplication pass failed: {e}")
+
+        all_locations = local_locations + cloud_locations + email_locations
+        total_docs = sum(l.document_count or 0 for l in all_locations)
+        total_size = sum(l.total_size_bytes or 0 for l in all_locations)
+        print(f"[docs] Document Discovery complete: {len(all_locations)} locations, "
+              f"{total_docs:,} docs, {_human_size(total_size)}")
+        print()
+
+        write_activity_log(output_dir, "MODULE_DOCS",
+                           f"locations={len(all_locations)} docs={total_docs} size={_human_size(total_size)} "
+                           f"practice_software={len(practice_detections)} modules_run={','.join(modules_run)}")
+
+        document_discovery_report = _build_document_discovery_report(
+            all_locations, practice_detections, modules_run, modules_skipped, dedup_adjustments)
+
     # Require at least one scan module; empty findings is a valid clean result.
     modules_selected = any([
         args.auto, args.dns_log, args.browser_history, args.software_inventory,
-        args.interview, args.interview_data,
+        args.interview, args.interview_data, run_docs,
     ])
     if not modules_selected:
         print("No scan modules selected.")
-        print("Use --auto for auto-detect, or --dns-log / --browser-history / --software-inventory / --interview")
+        print("Use --auto for auto-detect, or --dns-log / --browser-history / --software-inventory / --interview / --docs")
         store.close()
         sys.exit(1)
 
-    if not store.findings:
+    # "No findings" messaging only applies when AI-detection modules actually ran;
+    # in docs-only mode the [docs] summary already reported results.
+    ai_modules_ran = any([
+        args.auto, args.dns_log, args.browser_history, args.software_inventory,
+        args.interview, args.interview_data,
+    ])
+    if not store.findings and ai_modules_ran:
         print("No AI tools detected across selected scan modules.")
         print("Generating clean (zero-finding) report pack...\n")
 
     # Generate reports
     print(f"{'=' * 60}")
     print("Generating reports...")
-    result = generate_report(store.findings, args.client, args.auditor, output_dir, scan_date)
+    result = generate_report(store.findings, args.client, args.auditor, output_dir, scan_date,
+                             document_discovery=document_discovery_report)
 
     print(f"\n  HTML: {result['html']}")
     if result.get("pdf"):
@@ -1201,6 +2353,8 @@ Interactive Interview:
         print(f"  PDF:  (install WeasyPrint for PDF output)")
     print(f"  JSON: {result['json']}")
     print(f"  CSV:  {result['csv']}")
+    if result.get("data_manifest"):
+        print(f"  Data Manifest: {result['data_manifest']}")
     print(f"  DB:   {output_dir / 'findings.db'}")
 
     print(f"\n  Total findings:    {result['total_findings']}")
