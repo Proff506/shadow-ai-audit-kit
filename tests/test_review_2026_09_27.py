@@ -254,7 +254,7 @@ def test_interview_critical_says_confirmed(tmp_path):
     assert "confirmed by staff interview" in (out / "report.html").read_text()
 
 
-# ---- A10 + Kimi USB-007: escaping ---------------------------------------------
+# ---- A10: HTML and CSV escaping ---------------------------------------------
 
 def test_html_and_csv_are_escaped(tmp_path):
     f = scanner.Finding("interview", "ChatGPT", "consumer_ai", "HIGH",
@@ -268,7 +268,7 @@ def test_html_and_csv_are_escaped(tmp_path):
     assert "'=HYPERLINK" in csv_text
 
 
-# ---- Kimi USB-002: DNS lines counted once ---------------------------------------
+# ---- DNS lines counted once ---------------------------------------
 
 def test_dns_line_counted_once(tmp_path, domain_db):
     log = tmp_path / "dns.log"
