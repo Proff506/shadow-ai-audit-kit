@@ -8,3 +8,4 @@ bin/
 *.exe
 .venv/
 .venv-test/
+.audit-kit.conf

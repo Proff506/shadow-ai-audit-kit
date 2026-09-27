@@ -189,13 +189,24 @@ class Spinner:
 # Config persistence
 # ---------------------------------------------------------------------------
 
-CONFIG_DIR = Path.home() / ".elect-rix"
-CONFIG_FILE = CONFIG_DIR / "audit-kit.conf"
+# 2026-09-27: config lives on the KIT (next to this script), never in the
+# client's home directory, and never stores a client name.
+CONFIG_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = CONFIG_DIR / ".audit-kit.conf"
+
+MODE_LABELS = [
+    "Full auto-detect (browsers + software)",
+    "Auto-detect + staff interviews",
+    "Browser history only",
+    "Software inventory only",
+    "DNS log file",
+    "Auto-detect + Document Discovery",
+    "Document Discovery only",
+]
 
 DEFAULT_CONFIG = {
     "auditor_name": "elect-rix Auditor",
     "default_mode": "wizard",
-    "last_client": "",
     "scan_count": 0,
     "version": 1,
 }
@@ -213,9 +224,12 @@ def load_config():
 
 
 def save_config(cfg):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(cfg, f, indent=2)
+    cfg = {k: v for k, v in cfg.items() if k != "last_client"}
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(cfg, f, indent=2)
+    except OSError:
+        pass  # read-only kit media: run without persisting preferences
 
 
 # ---------------------------------------------------------------------------
@@ -469,14 +483,13 @@ def wizard_mode(config):
     print_divider()
     print(f"  {Term.step(1, 5, 'Client Information')}")
     print()
-    client_name = ask("Client / business name", config.get("last_client", ""))
+    client_name = ask("Client / business name")
     auditor_name = ask("Auditor name", config.get("auditor_name", "elect-rix Auditor"))
     print(f"\n  {Term.success(f'Client: {client_name}')}")
     print(f"  {Term.success(f'Auditor: {auditor_name}')}")
 
     # Save for next time
     config["auditor_name"] = auditor_name
-    config["last_client"] = client_name
     save_config(config)
 
     # Step 2: Scan mode
@@ -499,15 +512,7 @@ def wizard_mode(config):
     print(f"  {Term.success(f'Reports will save to: {output_dir}')}")
 
     # Step 4: Confirmation
-    mode_labels = [
-        "Full auto-detect (browsers + software)",
-        "Auto-detect + staff interviews",
-        "Browser history only",
-        "Software inventory only",
-        "DNS log file",
-        "Auto-detect + Document Discovery",
-        "Document Discovery only",
-    ]
+    mode_labels = MODE_LABELS
     print(f"\n  {Term.step(4, 5, 'Confirm')}")
     print()
     print(f"  {Term.bold()}Client:{Term.reset()}      {client_name}")
@@ -533,16 +538,16 @@ def wizard_mode(config):
 # Express mode
 # ---------------------------------------------------------------------------
 
-def express_mode(config, client_name=None, auditor_name=None, output_dir=None, mode_idx=0):
+def express_mode(config, client_name=None, auditor_name=None, output_dir=None, mode_idx=0, dns_log=None):
     """Fast path: auto-detect everything, minimal interaction."""
     sysinfo = detect_system()
     browsers = detect_browsers()
 
     if not client_name:
-        client_name = config.get("last_client", "")
-        if not client_name:
-            print(Term.error("No client name provided. Use --client or run wizard mode."))
-            sys.exit(1)
+        # Never default to a previous client's name: the kit travels between
+        # clients and a mislabelled report is a confidentiality incident.
+        print(Term.error("No client name provided. Use --client or run wizard mode."))
+        sys.exit(1)
 
     if not auditor_name:
         auditor_name = config.get("auditor_name", "elect-rix Auditor")
@@ -552,25 +557,24 @@ def express_mode(config, client_name=None, auditor_name=None, output_dir=None, m
         output_dir = script_dir / "reports" / datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
     config["auditor_name"] = auditor_name
-    config["last_client"] = client_name
     save_config(config)
 
     print_banner()
     print_system_info(sysinfo, browsers)
     print(f"  {Term.bold()}Client:{Term.reset()}   {client_name}")
     print(f"  {Term.bold()}Auditor:{Term.reset()}  {auditor_name}")
-    print(f"  {Term.bold()}Mode:{Term.reset()}     Express (full auto-detect)")
+    print(f"  {Term.bold()}Mode:{Term.reset()}     Express — {MODE_LABELS[mode_idx]}")
     print(f"  {Term.bold()}Output:{Term.reset()}   {output_dir}")
     print()
 
-    run_scan(mode_idx, client_name, auditor_name, str(output_dir), browsers, sysinfo)
+    run_scan(mode_idx, client_name, auditor_name, str(output_dir), browsers, sysinfo, dns_log=dns_log)
 
 
 # ---------------------------------------------------------------------------
 # Scan execution
 # ---------------------------------------------------------------------------
 
-def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo):
+def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo, dns_log=None):
     """Execute the selected scan mode, calling scanner.py as a subprocess."""
     scanner_path = find_scanner()
     if not scanner_path:
@@ -598,7 +602,7 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
     elif mode_idx == 3:  # Software only
         scanner_args.append("--auto")
     elif mode_idx == 4:  # DNS log
-        dns_path = ask("Path to DNS log file")
+        dns_path = dns_log or ask("Path to DNS log file")
         scanner_args.extend(["--dns-log", dns_path])
     elif mode_idx == 5:  # Auto + Document Discovery
         scanner_args.extend(["--auto", "--docs"])
@@ -612,29 +616,42 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
     elif mode_idx == 3:  # Software only
         env["AUDITKIT_SKIP_BROWSER"] = "1"
 
-    # Progress spinner while scanner runs
-    spinner = Spinner()
-    spinner.start("Scanning...")
-
     start_time = time.time()
+    interactive = mode_idx == 1  # staff interviews need the live terminal
 
-    try:
-        result = subprocess.run(
-            scanner_args,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=600 if mode_idx in (5, 6) else 300,  # docs modes scan whole trees
-        )
-    except subprocess.TimeoutExpired:
-        spinner.stop(Term.error("Scan timed out after 5 minutes."))
-        sys.exit(1)
-    except Exception as e:
-        spinner.stop(Term.error(f"Scan failed: {e}"))
-        sys.exit(1)
+    if interactive:
+        # 2026-09-27: interview questions are printed by scanner.py. With
+        # capture_output they were swallowed behind the spinner and the scan
+        # hit the timeout. Interview mode runs on the live terminal, no
+        # spinner, no timeout (a human is answering).
+        print(f"  {Term.info('Interview mode: questions appear below. Answer each one, then press Enter.')}\n")
+        try:
+            result = subprocess.run(scanner_args, env=env, text=True)
+        except Exception as e:
+            print(Term.error(f"Scan failed: {e}"))
+            sys.exit(1)
+        result.stdout, result.stderr = "", ""
+    else:
+        # Progress spinner while scanner runs
+        spinner = Spinner()
+        spinner.start("Scanning...")
+        try:
+            result = subprocess.run(
+                scanner_args,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=600 if mode_idx in (5, 6) else 300,  # docs modes scan whole trees
+            )
+        except subprocess.TimeoutExpired:
+            spinner.stop(Term.error("Scan timed out."))
+            sys.exit(1)
+        except Exception as e:
+            spinner.stop(Term.error(f"Scan failed: {e}"))
+            sys.exit(1)
+        spinner.stop()
 
     elapsed = time.time() - start_time
-    spinner.stop()
 
     # Print scanner output
     if result.stdout:
@@ -654,7 +671,6 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
     # the wizard's "Scan Complete" banner lies. Surface the real failure.
     report_json = output_dir / "report.json"
     if not report_json.exists():
-        spinner.stop()
         print(f"\n  {Term.error('Scanner exited 0 but no report.json was written.')}")
         if result.stderr:
             print(f"  {Term.dim()}{result.stderr}{Term.reset()}")
@@ -684,10 +700,17 @@ def run_scan(mode_idx, client_name, auditor_name, output_dir, browsers, sysinfo)
                 if count > 0:
                     print(f"    {Term.risk(level):30s} {count}")
 
-            if summary.get("pipeda_exposure"):
-                print(f"\n  {Term.error('PIPEDA/PHIPA exposure detected — immediate action required.')}")
-            else:
-                print(f"\n  {Term.success('No immediate PIPEDA/PHIPA exposure detected.')}")
+            if not summary.get("scan_complete", True):
+                print(f"\n  {Term.error('SCAN INCOMPLETE — some sources could not be read. See Scan Coverage in the report.')}")
+                for c in report.get("scan_coverage", []):
+                    if c.get("status") in ("failed", "partial"):
+                        print(f"    - [{c.get('module')}] {c.get('source')}: {c.get('status')} — {c.get('detail')}")
+            if summary.get("pipeda_confirmed_by_interview"):
+                print(f"\n  {Term.error('PIPEDA/PHIPA exposure confirmed by staff interview — immediate action required.')}")
+            elif summary.get("pipeda_exposure"):
+                print(f"\n  {Term.warn('Possible PIPEDA/PHIPA exposure — consumer AI in use; confirm with staff interviews.')}")
+            elif summary.get("scan_complete", True):
+                print(f"\n  {Term.success('No immediate PIPEDA/PHIPA exposure detected in the sources scanned.')}")
 
             if summary.get("insurance_gap_risk"):
                 print(f"  {Term.warn('Insurance coverage gap risk — verify with provider.')}")
@@ -897,7 +920,7 @@ def main():
             "docs": 6,
         }
         mode_idx = mode_map.get(args.mode, 0)
-        express_mode(config, args.client, args.auditor, args.output_dir, mode_idx)
+        express_mode(config, args.client, args.auditor, args.output_dir, mode_idx, dns_log=args.dns_log)
     else:
         # Wizard mode
         wizard_mode(config)

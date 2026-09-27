@@ -202,7 +202,7 @@ if "!SCAN_MODE!"=="1" (
 ) else if "!SCAN_MODE!"=="5" (
     echo.
     echo Enter path to DNS log file:
-    set /p DNS_LOG
+    set /p DNS_LOG=
     !SCANNER! --dns-log "!DNS_LOG!" --client "!CLIENT_NAME!" --auditor "!AUDITOR_NAME!" --output-dir "!REPORTS_DIR!"
 ) else (
     echo Invalid choice. Running auto-detect.

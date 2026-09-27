@@ -17,6 +17,7 @@ All processing is local. No network calls. No telemetry.
 import argparse
 import csv
 import datetime
+import html
 import json
 import os
 import platform
@@ -30,6 +31,31 @@ import threading
 import time
 from pathlib import Path
 from collections import Counter, defaultdict
+from urllib.parse import urlsplit
+
+
+# ---------------------------------------------------------------------------
+# Scan coverage — AUDIT-INTEGRITY (2026-09-27)
+# Every source the scanner tried is recorded here and printed in the client
+# report. A source that could not be read must never look like a clean result.
+# status: "ok" | "partial" | "failed" | "not_found"
+# ---------------------------------------------------------------------------
+
+SCAN_COVERAGE = []
+
+
+def record_coverage(module, source, status, detail=""):
+    SCAN_COVERAGE.append({"module": module, "source": str(source),
+                          "status": status, "detail": str(detail)})
+
+
+def reset_coverage():
+    SCAN_COVERAGE.clear()
+
+
+def _esc(value):
+    """HTML-escape any value interpolated into the report."""
+    return html.escape("" if value is None else str(value), quote=True)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -66,6 +92,48 @@ IS_LINUX = OS_NAME == "linux"
 IS_WINDOWS = OS_NAME == "windows"
 HOME = Path.home()
 
+def _chromium_profiles(user_data_dir, label):
+    """Every profile under a Chromium-family user-data dir that has a History DB.
+
+    Default -> "<label>", anything else -> "<label> (<profile dir>)".
+    Covers Chrome/Edge/Brave/Vivaldi/Arc/Chromium "Profile N", Edge work
+    profiles, and Guest profiles. (Before 2026-09-27 only Chrome got
+    "Profile N" globbing; Edge/Brave extra profiles were silently skipped.)
+    """
+    base = Path(user_data_dir)
+    found = []
+    if not base.is_dir():
+        return found
+    try:
+        candidates = sorted(base.glob("*/History"))
+    except OSError:
+        return found
+    for history in candidates:
+        profile = history.parent.name
+        if profile == "System Profile":
+            continue
+        name = label if profile == "Default" else f"{label} ({profile})"
+        found.append((name, history, "chrome"))
+    return found
+
+
+def _firefox_profiles(profiles_dir, label="Firefox"):
+    """Every Firefox profile with a places.sqlite (profile names are arbitrary)."""
+    base = Path(profiles_dir)
+    if not base.is_dir():
+        return []
+    try:
+        return [(label, p, "firefox") for p in sorted(base.glob("*/places.sqlite"))]
+    except OSError:
+        return []
+
+
+def _opera_history(opera_dir, label="Opera"):
+    """Opera keeps History directly in its profile dir (no Default/ level)."""
+    p = Path(opera_dir) / "History"
+    return [(label, p, "chrome")] if p.exists() else []
+
+
 def get_browser_paths():
     """Auto-detect browser history database paths for the current OS.
 
@@ -74,68 +142,30 @@ def get_browser_paths():
     paths = []
 
     if IS_MAC:
-        # Chrome
-        chrome = HOME / "Library/Application Support/Google/Chrome/Default/History"
-        if chrome.exists():
-            paths.append(("Chrome", chrome, "chrome"))
-
-        # Chrome profiles (Profile 1, Profile 2, etc.)
-        for p in (HOME / "Library/Application Support/Google/Chrome").glob("Profile */History"):
-            paths.append((f"Chrome ({p.parent.name})", p, "chrome"))
-
-        # Firefox
-        firefox_base = HOME / "Library/Application Support/Firefox/Profiles"
-        if firefox_base.exists():
-            for profile in firefox_base.glob("*.default*"):
-                places = profile / "places.sqlite"
-                if places.exists():
-                    paths.append(("Firefox", places, "firefox"))
-
-        # Safari (history is in a binary plist, not SQLite — needs special handling)
+        sup = HOME / "Library/Application Support"
+        paths += _chromium_profiles(sup / "Google/Chrome", "Chrome")
+        paths += _firefox_profiles(sup / "Firefox/Profiles")
+        # Safari (History.db, TCC-protected — see _scan_safari_history)
         safari = HOME / "Library/Safari/History.db"
         if safari.exists():
             paths.append(("Safari", safari, "safari"))
-
-        # Edge
-        edge = HOME / "Library/Application Support/Microsoft Edge/Default/History"
-        if edge.exists():
-            paths.append(("Edge", edge, "chrome"))  # Edge uses same SQLite schema as Chrome
-
-        # Brave
-        brave = HOME / "Library/Application Support/BraveSoftware/Brave-Browser/Default/History"
-        if brave.exists():
-            paths.append(("Brave", brave, "chrome"))
-
-        # Arc
-        arc = HOME / "Library/Application Support/Arc/User Data/Default/History"
-        if arc.exists():
-            paths.append(("Arc", arc, "chrome"))
+        paths += _chromium_profiles(sup / "Microsoft Edge", "Edge")
+        paths += _chromium_profiles(sup / "BraveSoftware/Brave-Browser", "Brave")
+        paths += _chromium_profiles(sup / "Arc/User Data", "Arc")
+        paths += _chromium_profiles(sup / "Vivaldi", "Vivaldi")
+        paths += _opera_history(sup / "com.operasoftware.Opera")
 
     elif IS_LINUX:
-        # Chrome
-        chrome = HOME / ".config/google-chrome/Default/History"
-        if chrome.exists():
-            paths.append(("Chrome", chrome, "chrome"))
-
-        for p in (HOME / ".config/google-chrome").glob("Profile */History"):
-            paths.append((f"Chrome ({p.parent.name})", p, "chrome"))
-
-        # Chromium
-        chromium = HOME / ".config/chromium/Default/History"
-        if chromium.exists():
-            paths.append(("Chromium", chromium, "chrome"))
+        cfg = HOME / ".config"
+        paths += _chromium_profiles(cfg / "google-chrome", "Chrome")
+        paths += _chromium_profiles(cfg / "chromium", "Chromium")
 
         # Chromium (snap) — profiles live under ~/snap/chromium/
         snap_chromium = HOME / "snap/chromium"
         if snap_chromium.exists():
-            for history in snap_chromium.glob("common/.config/chromium/*/History"):
-                paths.append((f"Chromium-snap ({history.parent.name})", history, "chrome"))
-            for history in snap_chromium.glob("common/chromium/*/History"):
-                paths.append((f"Chromium-snap ({history.parent.name})", history, "chrome"))
-            # Also check Default directly
-            snap_chromium_default = snap_chromium / "common/.config/chromium/Default/History"
-            if snap_chromium_default.exists():
-                paths.append(("Chromium-snap", snap_chromium_default, "chrome"))
+            for sub in ("common/.config/chromium", "common/chromium"):
+                for name, p, t in _chromium_profiles(snap_chromium / sub, "Chromium-snap"):
+                    paths.append((name, p, t))
 
         # Firefox — classic (~/.mozilla/firefox) AND XDG
         # (~/.config/mozilla/firefox) locations. Modern Firefox builds honor
@@ -143,65 +173,40 @@ def get_browser_paths():
         # the whole browser. Glob ANY subdir containing places.sqlite, not
         # just "*.default*" — profile dirs can be named arbitrarily
         # (e.g. "bmCbaQgY.Profile 1").
-        xdg_config = Path(os.environ.get("XDG_CONFIG_HOME") or (HOME / ".config"))
-        firefox_bases = [HOME / ".mozilla/firefox", xdg_config / "mozilla/firefox"]
+        xdg_config = Path(os.environ.get("XDG_CONFIG_HOME") or cfg)
+        paths += _firefox_profiles(HOME / ".mozilla/firefox")
+        paths += _firefox_profiles(xdg_config / "mozilla/firefox")
+        paths += _firefox_profiles(HOME / "snap/firefox/common/.mozilla/firefox", "Firefox-snap")
 
-        # Firefox (snap) — profiles live under ~/snap/firefox/common/.mozilla/firefox/
-        snap_firefox = HOME / "snap/firefox"
-        if snap_firefox.exists():
-            snap_ff_base = snap_firefox / "common/.mozilla/firefox"
-            if snap_ff_base.exists():
-                firefox_bases.append(snap_ff_base)
-
-        for firefox_base in firefox_bases:
-            if firefox_base.exists():
-                for places in firefox_base.glob("*/places.sqlite"):
-                    label = "Firefox-snap" if "snap" in str(firefox_base) else "Firefox"
-                    paths.append((label, places, "firefox"))
-
-        # Brave
-        brave = HOME / ".config/BraveSoftware/Brave-Browser/Default/History"
-        if brave.exists():
-            paths.append(("Brave", brave, "chrome"))
-
-        # Edge
-        edge = HOME / ".config/microsoft-edge/Default/History"
-        if edge.exists():
-            paths.append(("Edge", edge, "chrome"))
+        paths += _chromium_profiles(cfg / "BraveSoftware/Brave-Browser", "Brave")
+        paths += _chromium_profiles(cfg / "microsoft-edge", "Edge")
+        paths += _chromium_profiles(cfg / "vivaldi", "Vivaldi")
+        paths += _opera_history(cfg / "opera")
 
     elif IS_WINDOWS:
         appdata = os.environ.get("APPDATA", "")
         localappdata = os.environ.get("LOCALAPPDATA", "")
 
         if localappdata:
-            # Chrome
-            chrome = Path(localappdata) / "Google/Chrome/User Data/Default/History"
-            if chrome.exists():
-                paths.append(("Chrome", chrome, "chrome"))
-
-            for p in (Path(localappdata) / "Google/Chrome/User Data").glob("Profile */History"):
-                paths.append((f"Chrome ({p.parent.name})", p, "chrome"))
-
-            # Edge
-            edge = Path(localappdata) / "Microsoft/Edge/User Data/Default/History"
-            if edge.exists():
-                paths.append(("Edge", edge, "chrome"))
-
-            # Brave
-            brave = Path(localappdata) / "BraveSoftware/Brave-Browser/User Data/Default/History"
-            if brave.exists():
-                paths.append(("Brave", brave, "chrome"))
+            la = Path(localappdata)
+            paths += _chromium_profiles(la / "Google/Chrome/User Data", "Chrome")
+            paths += _chromium_profiles(la / "Microsoft/Edge/User Data", "Edge")
+            paths += _chromium_profiles(la / "BraveSoftware/Brave-Browser/User Data", "Brave")
+            paths += _chromium_profiles(la / "Vivaldi/User Data", "Vivaldi")
 
         if appdata:
-            # Firefox
-            firefox_base = Path(appdata) / "Mozilla/Firefox/Profiles"
-            if firefox_base.exists():
-                for profile in firefox_base.glob("*.default*"):
-                    places = profile / "places.sqlite"
-                    if places.exists():
-                        paths.append(("Firefox", places, "firefox"))
+            ra = Path(appdata)
+            paths += _firefox_profiles(ra / "Mozilla/Firefox/Profiles")
+            paths += _opera_history(ra / "Opera Software/Opera Stable")
 
-    return paths
+    # De-duplicate (XDG_CONFIG_HOME may equal ~/.config, etc.)
+    seen, unique = set(), []
+    for name, p, t in paths:
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            unique.append((name, p, t))
+    return unique
 
 
 def get_software_inventory_paths():
@@ -392,8 +397,47 @@ DNS_LOG_PATTERNS = [
 ]
 
 
+def _match_ai_host(host, domain_map):
+    """Return the AI-domain key for a hostname, or None.
+
+    Exact host or a true subdomain only (host == d or host.endswith("." + d)).
+    Longest match wins, so "chat.openai.com" beats "openai.com" if both exist.
+    Entries with scan: false (gatekeeper-only) never match.
+    """
+    if not host:
+        return None
+    host = host.lower().strip(".")
+    labels = host.split(".")
+    for i in range(len(labels) - 1):
+        candidate = ".".join(labels[i:])
+        info = domain_map.get(candidate)
+        if info is not None and info.get("scan") is not False:
+            return candidate
+    return None
+
+
+def _norm_ts(ts):
+    """Normalize a timestamp string to 'YYYY-MM-DD HH:MM' (or None)."""
+    if not ts:
+        return None
+    s = str(ts).replace("T", " ")
+    return s[:16] if re.match(r"^\d{4}-\d{2}-\d{2}", s) else None
+
+
+def _first_last(timestamps):
+    """(earliest, latest) of the parseable timestamps, or ('unknown','unknown')."""
+    vals = sorted(t for t in (_norm_ts(x) for x in timestamps) if t)
+    if not vals:
+        return "unknown", "unknown"
+    return vals[0], vals[-1]
+
+
 def scan_dns_log(log_path, domain_db):
-    """Scan a DNS log file for AI tool domain queries."""
+    """Scan a DNS log file for AI tool domain queries.
+
+    Each log line counts at most once per AI domain. (Before 2026-09-27 a
+    dnsmasq line matched three patterns and was counted three times.)
+    """
     findings = []
     domain_counts = Counter()
     domain_timestamps = defaultdict(list)
@@ -401,30 +445,32 @@ def scan_dns_log(log_path, domain_db):
 
     with open(log_path, "r", errors="replace") as f:
         for line in f:
+            hits = set()
             for pattern in DNS_LOG_PATTERNS:
-                matches = pattern.findall(line)
-                if not matches:
-                    continue
-                for match in matches:
+                for match in pattern.findall(line):
                     domain = match[-1] if isinstance(match, tuple) else match
-                    domain = domain.lower().strip(".")
-                    for ai_domain, info in domain_map.items():
-                        if info.get("scan") is False:
-                            continue  # gatekeeper-only entry (infrastructure, cloud storage, etc.)
-                        if domain == ai_domain or domain.endswith("." + ai_domain):
-                            domain_counts[ai_domain] += 1
-                            ts_match = re.match(r'(\d{4}-\d{2}-\d{2}|\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
-                            if ts_match:
-                                domain_timestamps[ai_domain].append(ts_match.group(1))
-                            break
+                    ai_domain = _match_ai_host(domain, domain_map)
+                    if ai_domain:
+                        hits.add(ai_domain)
+            if not hits:
+                continue
+            ts_match = re.match(r'(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?|\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
+            for ai_domain in hits:
+                domain_counts[ai_domain] += 1
+                if ts_match:
+                    domain_timestamps[ai_domain].append(ts_match.group(1))
+
+    record_coverage("dns", log_path, "ok", f"{sum(domain_counts.values())} AI queries")
 
     for domain, count in domain_counts.items():
         info = domain_map[domain]
+        stamps = domain_timestamps[domain]
+        first, last = (stamps[0], stamps[-1]) if stamps else ("unknown", "unknown")
         findings.append(Finding(
             source="dns", tool=info["tool"], category=info["category"],
             risk=info["risk_default"],
             evidence=f"DNS queries to {domain} ({count} queries)",
-            notes=f"First seen: {domain_timestamps[domain][0] if domain_timestamps[domain] else 'unknown'}. Last seen: {domain_timestamps[domain][-1] if domain_timestamps[domain] else 'unknown'}. {info.get('notes', '')}"
+            notes=f"First seen: {first}. Last seen: {last}. {info.get('notes', '')}"
         ))
 
     return findings, domain_counts
@@ -434,11 +480,15 @@ def scan_dns_log(log_path, domain_db):
 # Module 2: Browser History Scanner (auto-detect)
 # ---------------------------------------------------------------------------
 
+BROWSER_ROW_LIMIT = 50000
+
+
 def scan_browser_history_auto(domain_db, specific_path=None):
     """Auto-detect and scan all browser histories on this machine.
 
     If specific_path is provided, scan only that file.
     Otherwise, auto-detect all browsers for the current OS.
+    Every browser attempted is recorded in SCAN_COVERAGE (ok/partial/failed).
     """
     findings = []
     domain_map = domain_db["domains"]
@@ -452,31 +502,36 @@ def scan_browser_history_auto(domain_db, specific_path=None):
 
     if not browser_paths:
         print("  No browsers detected on this system.")
-        if specific_path:
-            print(f"  (Manual path provided: {specific_path})")
+        record_coverage("browser", "(none)", "not_found",
+                        "No supported browser history found for this user account")
         return findings, visit_counts, browser_paths
 
     for browser_name, path, db_type in browser_paths:
         print(f"  Scanning {browser_name}: {path}")
-
+        label = f"{browser_name}"
         try:
             if db_type == "chrome":
-                _scan_chrome_history(path, domain_map, visit_counts, visit_details, browser_name)
+                status, detail = _scan_chrome_history(path, domain_map, visit_counts, visit_details, browser_name)
             elif db_type == "firefox":
-                _scan_firefox_history(path, domain_map, visit_counts, visit_details, browser_name)
+                status, detail = _scan_firefox_history(path, domain_map, visit_counts, visit_details, browser_name)
             elif db_type == "safari":
-                _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_name)
+                status, detail = _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_name)
+            else:
+                status, detail = "failed", f"unknown history type {db_type}"
         except Exception as e:
             print(f"    warn: could not read {browser_name} history: {e}")
+            status, detail = "failed", f"could not read history: {type(e).__name__}: {e}"
+        record_coverage("browser", label, status, detail)
 
     # Generate findings
     for domain, count in visit_counts.items():
         info = domain_map[domain]
+        first, last = _first_last(visit_details[domain])
         findings.append(Finding(
             source="browser", tool=info["tool"], category=info["category"],
             risk=info["risk_default"],
             evidence=f"Browser visits to {domain} ({count} visits)",
-            notes=f"First visit: {visit_details[domain][0] if visit_details[domain] else 'unknown'}. Last visit: {visit_details[domain][-1] if visit_details[domain] else 'unknown'}. {info.get('notes', '')}"
+            notes=f"First visit: {first} UTC. Last visit: {last} UTC. {info.get('notes', '')}"
         ))
 
     return findings, visit_counts, browser_paths
@@ -492,56 +547,100 @@ def _detect_browser_type(path):
     return "chrome"  # Default to Chrome schema
 
 
-def _scan_chrome_history(path, domain_map, visit_counts, visit_details, browser_name):
-    """Scan Chrome/Edge/Brave/Arc history (all use same SQLite schema)."""
-    # Copy to temp to avoid locking issues
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
-    shutil.copy2(str(path), tmp_path)
+def _snapshot_sqlite(path):
+    """Copy a live browser SQLite DB (plus -wal/-shm/-journal) to a private temp dir.
 
+    Firefox and Safari run in WAL mode: while the browser is open, the most
+    recent visits exist only in the -wal file. Copying the main file alone
+    silently drops them (found 2026-09-27). The companions are copied under
+    the same basename so SQLite replays them on open.
+    Returns (tmp_dir, db_copy_path). Caller must shutil.rmtree(tmp_dir).
+    """
+    import tempfile
+    tmp_dir = tempfile.mkdtemp(prefix="sa-scan-")
     try:
-        conn = sqlite3.connect(tmp_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT url, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 50000")
-            for url, visit_time in cursor.fetchall():
+        os.chmod(tmp_dir, 0o700)
+    except OSError:
+        pass
+    src = Path(path)
+    dst = Path(tmp_dir) / src.name
+    try:
+        shutil.copy2(str(src), str(dst))
+        for suffix in ("-wal", "-shm", "-journal"):
+            comp = Path(str(src) + suffix)
+            if comp.exists():
                 try:
-                    if visit_time and visit_time > 10000000000000000:
-                        timestamp = (datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=visit_time)).isoformat()
-                    else:
-                        timestamp = str(visit_time)
-                except Exception:
-                    timestamp = str(visit_time)
-                _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError as e:
-            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
-            print(f"    WARN: {browser_name} history schema mismatch ({e}) — browser findings may be incomplete")
-        conn.close()
+                    shutil.copy2(str(comp), str(dst) + suffix)
+                except OSError:
+                    pass  # companion locked/vanished: main file still usable
+    except BaseException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+    return tmp_dir, dst
+
+
+def _run_history_query(path, sql, row_handler, browser_name, kind):
+    """Snapshot, query, and always clean up. Returns (status, detail)."""
+    queries = sql if isinstance(sql, (list, tuple)) else [sql]
+    tmp_dir, db_copy = _snapshot_sqlite(path)
+    try:
+        conn = sqlite3.connect(str(db_copy))
+        try:
+            last_err = None
+            rows = None
+            for q in queries:  # newest schema first; first query that runs wins
+                try:
+                    rows = conn.execute(q).fetchall()
+                    break
+                except sqlite3.OperationalError as e:
+                    last_err = e
+            if rows is None:
+                # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
+                print(f"    WARN: {browser_name} {kind} schema mismatch ({last_err}) — browser findings may be incomplete")
+                return "failed", f"{kind} schema mismatch: {last_err}"
+        finally:
+            conn.close()
+        for row in rows:
+            row_handler(row)
+        if len(rows) >= BROWSER_ROW_LIMIT:
+            return "partial", f"only the most recent {BROWSER_ROW_LIMIT:,} history rows were read"
+        return "ok", f"{len(rows):,} history rows read"
     finally:
-        os.unlink(tmp_path)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _scan_chrome_history(path, domain_map, visit_counts, visit_details, browser_name):
+    """Scan Chrome/Edge/Brave/Arc/Vivaldi/Opera history (same SQLite schema)."""
+    def handle(row):
+        url, visit_time, n = row
+        try:
+            if visit_time and visit_time > 10000000000000000:
+                timestamp = (datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=visit_time)).isoformat()
+            else:
+                timestamp = ""
+        except Exception:
+            timestamp = ""
+        _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details, max(int(n or 0), 1))
+
+    return _run_history_query(
+        path,
+        [f"SELECT url, last_visit_time, visit_count FROM urls ORDER BY last_visit_time DESC LIMIT {BROWSER_ROW_LIMIT}",
+         f"SELECT url, last_visit_time, 1 FROM urls ORDER BY last_visit_time DESC LIMIT {BROWSER_ROW_LIMIT}"],
+        handle, browser_name, "History")
 
 
 def _scan_firefox_history(path, domain_map, visit_counts, visit_details, browser_name):
     """Scan Firefox history (places.sqlite)."""
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
-    shutil.copy2(str(path), tmp_path)
+    def handle(row):
+        url, timestamp, n = row
+        _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details, max(int(n or 0), 1))
 
-    try:
-        conn = sqlite3.connect(tmp_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT url, datetime(last_visit_date/1000000, 'unixepoch') FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 50000")
-            for url, timestamp in cursor.fetchall():
-                _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError as e:
-            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
-            print(f"    WARN: {browser_name} places.sqlite schema mismatch ({e}) — browser findings may be incomplete")
-        conn.close()
-    finally:
-        os.unlink(tmp_path)
+    tail = f"FROM moz_places WHERE last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT {BROWSER_ROW_LIMIT}"
+    return _run_history_query(
+        path,
+        [f"SELECT url, datetime(last_visit_date/1000000, 'unixepoch'), visit_count {tail}",
+         f"SELECT url, datetime(last_visit_date/1000000, 'unixepoch'), 1 {tail}"],
+        handle, browser_name, "places.sqlite")
 
 
 def _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_name):
@@ -552,14 +651,21 @@ def _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_
     (Terminal, or the Python interpreter itself) has been granted Full Disk
     Access. Denial surfaces as PermissionError, not FileNotFoundError — the
     path.exists() check upstream will have already succeeded.
+    One row per visit, so each row counts once. Timestamps in UTC like the
+    other browsers.
     """
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
+    def handle(row):
+        url, timestamp = row
+        _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details, 1)
+
     try:
-        shutil.copy2(str(path), tmp_path)
+        return _run_history_query(
+            path,
+            "SELECT url, datetime(visit_time + 978307200, 'unixepoch') FROM history_visits "
+            "JOIN history_items ON history_visits.history_item = history_items.id "
+            f"ORDER BY visit_time DESC LIMIT {BROWSER_ROW_LIMIT}",
+            handle, browser_name, "History.db")
     except PermissionError as e:
-        os.unlink(tmp_path)
         raise PermissionError(
             "macOS blocked Safari history access (Full Disk Access required). "
             "Grant Full Disk Access to Terminal (or the Python interpreter) in "
@@ -567,42 +673,29 @@ def _scan_safari_history(path, domain_map, visit_counts, visit_details, browser_
             "the scan. Continuing without Safari data."
         ) from e
 
-    try:
-        conn = sqlite3.connect(tmp_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT url, datetime(visit_time + 978307200, 'unixepoch', 'localtime') FROM history_visits JOIN history_items ON history_visits.history_item = history_items.id ORDER BY visit_time DESC LIMIT 50000")
-            for url, timestamp in cursor.fetchall():
-                _check_url_for_ai(url, timestamp or "", domain_map, visit_counts, visit_details)
-        except sqlite3.OperationalError as e:
-            # AUDIT-INTEGRITY: never swallow schema errors into silent zeros.
-            print(f"    WARN: {browser_name} History.db schema mismatch ({e}) — Safari findings may be incomplete")
-        conn.close()
-    finally:
-        os.unlink(tmp_path)
-
 
 def scan_browser_history(history_path, domain_db):
     """Legacy single-file browser scan (kept for backward compat)."""
     return scan_browser_history_auto(domain_db, specific_path=history_path)[:2]
 
 
-def _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details):
-    """Check a URL against the AI domain database."""
+def _check_url_for_ai(url, timestamp, domain_map, visit_counts, visit_details, visits=1):
+    """Check a URL's HOST against the AI domain database.
+
+    Matches the hostname only. (Before 2026-09-27 the domain was searched
+    anywhere in the URL, so Outlook SafeLinks / Google redirect URLs that
+    merely contained an AI address in a query string counted as visits.)
+    """
     if not url:
         return
-    url_lower = url.lower()
-
-    for ai_domain, info in domain_map.items():
-        if info.get("scan") is False:
-            continue  # gatekeeper-only entry (infrastructure, cloud storage, etc.)
-        if (url_lower.startswith(f"https://{ai_domain}") or
-            url_lower.startswith(f"http://{ai_domain}") or
-            f".{ai_domain}/" in url_lower or
-            f".{ai_domain}" in url_lower):
-            visit_counts[ai_domain] += 1
-            visit_details[ai_domain].append(str(timestamp))
-            break
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return
+    ai_domain = _match_ai_host(host, domain_map)
+    if ai_domain:
+        visit_counts[ai_domain] += visits
+        visit_details[ai_domain].append(str(timestamp))
 
 
 # ---------------------------------------------------------------------------
@@ -618,6 +711,7 @@ def scan_software_inventory_auto(domain_db):
 
     if not sources:
         print("  No software inventory sources detected for this OS.")
+        record_coverage("software", "(none)", "not_found", "No software inventory source for this OS")
         return findings, detected
 
     for method, source, output_type in sources:
@@ -632,6 +726,9 @@ def scan_software_inventory_auto(domain_db):
                     for item in app_dir.iterdir():
                         app_name = item.stem
                         _match_software(app_name, software_map, detected)
+                    record_coverage("software", source_display, "ok", "folder listed")
+                else:
+                    record_coverage("software", source_display, "not_found", "folder not present")
 
             elif method == "command":
                 # Linux sources are plain shell strings (dpkg -l, rpm -qa, ...).
@@ -641,6 +738,14 @@ def scan_software_inventory_auto(domain_db):
                     source, shell=isinstance(source, str),
                     capture_output=True, text=True, timeout=30
                 )
+                if result.returncode == 127:
+                    record_coverage("software", source_display[:60], "not_found", "package tool not installed")
+                elif result.returncode != 0:
+                    record_coverage("software", source_display[:60], "failed",
+                                    f"exit {result.returncode}: {(result.stderr or '').strip()[:160]}")
+                else:
+                    record_coverage("software", source_display[:60], "ok",
+                                    f"{len(result.stdout.splitlines())} entries listed")
                 if result.returncode == 0 and result.stdout:
                     for line in result.stdout.splitlines():
                         if output_type == "dpkg":
@@ -654,8 +759,11 @@ def scan_software_inventory_auto(domain_db):
                             line_clean = line.strip().strip('"').split(",")[-1].strip()
                         _match_software(line_clean, software_map, detected)
 
+        except FileNotFoundError:
+            record_coverage("software", source_display[:60], "not_found", "package tool not installed")
         except Exception as e:
             print(f"    warn: {output_type} scan failed: {e}")
+            record_coverage("software", source_display[:60], "failed", f"{type(e).__name__}: {e}")
 
     for sw_name, raw_line in sorted(detected):
         info = software_map[sw_name]
@@ -764,11 +872,61 @@ INTERVIEW_QUESTIONS = [
     ("role", "Role at the firm: "),
     ("tools", "Which AI tools do you use for work? (comma-separated, or 'none'): "),
     ("use_cases", "What do you use them for? (drafting, summarizing, research, coding, etc.): "),
-    ("data_types", "Do you ever paste client information into these tools? (yes/no, describe): "),
+    ("data_types", "Have you ever put client, patient or financial information into these tools? (yes/no/unsure, then describe): "),
     ("account_type", "Personal or work accounts? (personal/work/both): "),
     ("mobile", "Do you use AI apps on your phone for work tasks? (yes/no, which): "),
     ("extensions", "Any AI browser extensions installed? (list, or 'none'): "),
 ]
+
+
+_NEGATIVE_ANSWER = re.compile(r"^\s*(no|n|none|never|nope|not\b|nothing)\b", re.IGNORECASE)
+_POSITIVE_ANSWER = re.compile(r"\b(yes|y|yeah|yep|sometimes|occasionally|client|clients|patient|patients|financial|pii)\b", re.IGNORECASE)
+
+
+def answer_shares_sensitive_data(answer):
+    """True only when the data-types answer says sensitive data WAS shared.
+
+    A leading no/never/none wins ("no, never any client data" is not a
+    CRITICAL). Before 2026-09-27 any answer containing "client" or "yes"
+    anywhere escalated to CRITICAL, including plain denials.
+    """
+    a = (answer or "").strip()
+    if not a or _NEGATIVE_ANSWER.match(a):
+        return False
+    return bool(_POSITIVE_ANSWER.search(a))
+
+
+def interview_findings(responses, domain_db):
+    """Turn one staff interview (dict) into Findings. Shared by the live
+    interview and --interview-data so the two paths can't drift."""
+    findings = []
+    tools_str = (responses.get("tools") or "").lower()
+    if not tools_str or tools_str.strip() == "none":
+        return findings
+    software_map = domain_db.get("software_names", {})
+    sensitive = answer_shares_sensitive_data(responses.get("data_types", ""))
+    who = f"{responses.get('name') or 'anonymous'} ({responses.get('role') or 'unknown role'})"
+    use = responses.get("use_cases") or "unspecified"
+    notes = (f"Data shared: {responses.get('data_types') or 'unknown'}. "
+             f"Account type: {responses.get('account_type') or 'unknown'}. "
+             f"Mobile: {responses.get('mobile') or 'unknown'}. "
+             f"Extensions: {responses.get('extensions') or 'none'}")
+    for tool_name in [t.strip() for t in tools_str.split(",")]:
+        if not tool_name or tool_name == "none":
+            continue
+        match = next(((n, i) for n, i in software_map.items() if n.lower() in tool_name), None)
+        if match:
+            sw_name, info = match
+            findings.append(Finding(
+                source="interview", tool=sw_name, category=info["category"],
+                risk="CRITICAL" if sensitive else info["risk_default"],
+                evidence=f"Staff interview: {who} uses {sw_name} for {use}", notes=notes))
+        else:
+            findings.append(Finding(
+                source="interview", tool=tool_name.title(), category="unknown",
+                risk="CRITICAL" if sensitive else "MEDIUM",
+                evidence=f"Staff interview: {who} uses {tool_name} for {use}", notes=notes))
+    return findings
 
 
 def interactive_interview():
@@ -783,44 +941,14 @@ def interactive_interview():
     for key, prompt in INTERVIEW_QUESTIONS:
         responses[key] = input(prompt).strip()
 
-    findings = []
-    tools_str = responses.get("tools", "").lower()
-    if tools_str and tools_str != "none":
-        domain_db = load_domain_db()
-        software_map = domain_db.get("software_names", {})
-
-        for tool_name in [t.strip() for t in tools_str.split(",")]:
-            matched = False
-            for sw_name, info in software_map.items():
-                if sw_name.lower() in tool_name.lower():
-                    data_types = responses.get("data_types", "").lower()
-                    risk_override = "CRITICAL" if any(w in data_types for w in ["yes", "client", "patient", "financial"]) else None
-                    findings.append(Finding(
-                        source="interview", tool=sw_name, category=info["category"],
-                        risk=risk_override or info["risk_default"],
-                        evidence=f"Staff interview: {responses.get('name', 'anonymous')} ({responses.get('role', 'unknown role')}) uses {sw_name} for {responses.get('use_cases', 'unspecified')}",
-                        notes=f"Data shared: {responses.get('data_types', 'unknown')}. Account type: {responses.get('account_type', 'unknown')}. Mobile: {responses.get('mobile', 'unknown')}. Extensions: {responses.get('extensions', 'none')}"
-                    ))
-                    matched = True
-                    break
-
-            if not matched and tool_name and tool_name != "none":
-                data_types = responses.get("data_types", "").lower()
-                risk = "CRITICAL" if any(w in data_types for w in ["yes", "client", "patient", "financial"]) else "MEDIUM"
-                findings.append(Finding(
-                    source="interview", tool=tool_name.title(), category="unknown", risk=risk,
-                    evidence=f"Staff interview: {responses.get('name', 'anonymous')} ({responses.get('role', 'unknown role')}) uses {tool_name} for {responses.get('use_cases', 'unspecified')}",
-                    notes=f"Data shared: {responses.get('data_types', 'unknown')}. Account type: {responses.get('account_type', 'unknown')}. Mobile: {responses.get('mobile', 'unknown')}. Extensions: {responses.get('extensions', 'none')}"
-                ))
-
-    return findings, responses
+    return interview_findings(responses, load_domain_db()), responses
 
 
 # ---------------------------------------------------------------------------
 # Module 5: Report Generator (unchanged from original)
 # ---------------------------------------------------------------------------
 
-def generate_report(findings, client_name, auditor_name, output_dir, scan_date=None, document_discovery=None):
+def generate_report(findings, client_name, auditor_name, output_dir, scan_date=None, document_discovery=None, coverage=None):
     """Generate HTML, JSON, and CSV reports from findings.
 
     `document_discovery`, if provided, is the dict built by
@@ -860,6 +988,12 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
         for f in findings
     )
 
+    # Interview-confirmed sharing is the only thing that proves data went in.
+    pipeda_confirmed = any(f.risk == "CRITICAL" and f.source == "interview" for f in findings)
+
+    coverage = [dict(c) for c in (SCAN_COVERAGE if coverage is None else coverage)]
+    scan_complete = not any(c["status"] in ("failed", "partial") for c in coverage)
+
     json_report = {
         "report_type": "Shadow AI Discovery (SA-1)",
         "client": client_name, "auditor": auditor_name,
@@ -871,7 +1005,10 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
             "category_distribution": dict(category_counts),
             "source_distribution": dict(source_counts),
             "pipeda_exposure": pipeda_exposure, "insurance_gap_risk": insurance_gap,
+            "pipeda_confirmed_by_interview": pipeda_confirmed,
+            "scan_complete": scan_complete,
         },
+        "scan_coverage": coverage,
         "top_actions": top_actions,
         "findings": [f.to_dict() for f in sorted_findings],
     }
@@ -882,12 +1019,16 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_report, f, indent=2)
 
+    def _cell(v):
+        v = "" if v is None else str(v)
+        return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
     csv_path = output_dir / "inventory.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Source", "Tool", "Category", "Risk Level", "Evidence", "Notes", "Timestamp"])
         for finding in sorted_findings:
-            writer.writerow([finding.source, finding.tool, finding.category, finding.risk, finding.evidence, finding.notes, finding.timestamp])
+            writer.writerow([_cell(x) for x in (finding.source, finding.tool, finding.category, finding.risk, finding.evidence, finding.notes, finding.timestamp)])
 
     manifest_path = None
     if document_discovery is not None:
@@ -897,30 +1038,30 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
             writer.writerow(["Source", "Type", "Name", "Location", "Document_Count", "Total_Size",
                               "Export_Method", "Export_Instructions", "Access_Status"])
             for loc in document_discovery["data_locations"]:
-                writer.writerow([
+                writer.writerow([_cell(x) for x in (
                     loc["source"], loc["type"], loc["name"], loc["location"],
                     loc["document_count"] if loc["document_count"] is not None else "—",
                     loc["total_size_human"], loc["export_method"] or "",
                     loc["export_instructions"] or "", loc["access_status"],
-                ])
+                )])
             for d in document_discovery["practice_software"]:
-                writer.writerow([
+                writer.writerow([_cell(x) for x in (
                     "practice_software", "practice_management", d["tool_name"],
                     d.get("data_location") or "", "—", "—",
                     d.get("export_method") or "", d.get("export_instructions") or "",
                     "accessible",
-                ])
+                )])
 
-    html = _generate_html_report(json_report, sorted_findings, client_name, auditor_name, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap, document_discovery=document_discovery)
+    report_html = _generate_html_report(json_report, sorted_findings, client_name, auditor_name, scan_date, risk_counts, category_counts, source_counts, top_actions, pipeda_exposure, insurance_gap, document_discovery=document_discovery)
     html_path = output_dir / "report.html"
     with open(html_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(report_html)
 
     pdf_path = None
     try:
         from weasyprint import HTML as WeasyHTML
         pdf_path = output_dir / "report.pdf"
-        WeasyHTML(string=html).write_pdf(str(pdf_path))
+        WeasyHTML(string=report_html).write_pdf(str(pdf_path))
     except ImportError:
         pass
     except Exception as e:
@@ -932,6 +1073,7 @@ def generate_report(findings, client_name, auditor_name, output_dir, scan_date=N
         "pdf": str(pdf_path) if pdf_path and pdf_path.exists() else None,
         "total_findings": total_findings, "unique_tools": total_tools,
         "risk_distribution": dict(risk_counts),
+        "scan_complete": scan_complete,
     }
 
 
@@ -947,17 +1089,17 @@ def _generate_document_discovery_html(dd):
 
     manifest_rows = ""
     for loc in dd["data_locations"]:
-        source_label = source_labels.get(loc["source"], loc["source"])
+        source_label = _esc(source_labels.get(loc["source"], loc["source"]))
         doc_count = f"{loc['document_count']:,}" if loc.get("document_count") is not None else "—"
         manifest_rows += f"""
         <tr>
           <td>{source_label}</td>
-          <td>{loc['type']}</td>
-          <td>{loc['name']}</td>
-          <td>{loc['location']}</td>
+          <td>{_esc(loc['type'])}</td>
+          <td>{_esc(loc['name'])}</td>
+          <td>{_esc(loc['location'])}</td>
           <td>{doc_count}</td>
-          <td>{loc['total_size_human']}</td>
-          <td>{loc['export_method'] or '—'}</td>
+          <td>{_esc(loc['total_size_human'])}</td>
+          <td>{_esc(loc['export_method'] or '—')}</td>
         </tr>"""
 
     for d in dd["practice_software"]:
@@ -965,18 +1107,18 @@ def _generate_document_discovery_html(dd):
         <tr>
           <td>Practice</td>
           <td>practice_management</td>
-          <td>{d['tool_name']}</td>
-          <td>{d.get('data_location') or '—'}</td>
+          <td>{_esc(d['tool_name'])}</td>
+          <td>{_esc(d.get('data_location') or '—')}</td>
           <td>—</td>
           <td>—</td>
-          <td>{d.get('export_method') or '—'}</td>
+          <td>{_esc(d.get('export_method') or '—')}</td>
         </tr>"""
 
     if not manifest_rows:
         manifest_rows = "<tr><td colspan='7'>No document locations found — client may be fully cloud-based.</td></tr>"
 
     dedup_notes = "".join(
-        f"<li>{loc['name']}: {loc['notes']}</li>"
+        f"<li>{_esc(loc['name'])}: {_esc(loc['notes'])}</li>"
         for loc in dd["data_locations"]
         if loc.get("notes") and ("Overlaps with" in loc["notes"] or "deduplicated" in loc["notes"])
     )
@@ -988,15 +1130,15 @@ def _generate_document_discovery_html(dd):
     export_guide_html = "".join(
         f"""
         <div style="margin-bottom:16px">
-          <strong>{d['tool_name']} detected:</strong>
-          <p style="font-size:13px;color:#475569;margin-top:4px">{d.get('export_instructions') or 'No export instructions available.'}</p>
-          <p style="font-size:13px;color:#475569">Data: {', '.join(d.get('data_types') or []) or 'unknown'}</p>
+          <strong>{_esc(d['tool_name'])} detected:</strong>
+          <p style="font-size:13px;color:#475569;margin-top:4px">{_esc(d.get('export_instructions') or 'No export instructions available.')}</p>
+          <p style="font-size:13px;color:#475569">Data: {_esc(', '.join(d.get('data_types') or []) or 'unknown')}</p>
         </div>"""
         for d in dd["practice_software"]
     ) or "<p style='font-size:13px;color:#475569'>No practice management software detected.</p>"
 
     summary = dd["summary"]
-    note_html = f"<p style='font-size:13px;color:#475569;margin-bottom:12px'>{dd['note']}</p>" if dd.get("note") else ""
+    note_html = f"<p style='font-size:13px;color:#475569;margin-bottom:12px'>{_esc(dd['note'])}</p>" if dd.get("note") else ""
 
     return f"""
   <div class="section">
@@ -1005,8 +1147,8 @@ def _generate_document_discovery_html(dd):
     <div class="summary-grid">
       <div class="summary-card"><div class="number">{summary['total_document_locations']}</div><div class="label">Locations</div></div>
       <div class="summary-card"><div class="number">{summary['total_documents']:,}</div><div class="label">Total Documents</div></div>
-      <div class="summary-card"><div class="number">{summary['total_size_human']}</div><div class="label">Total Size</div></div>
-      <div class="summary-card"><div class="number">{summary['export_complexity']}</div><div class="label">Export Complexity</div></div>
+      <div class="summary-card"><div class="number">{_esc(summary['total_size_human'])}</div><div class="label">Total Size</div></div>
+      <div class="summary-card"><div class="number">{_esc(summary['export_complexity'])}</div><div class="label">Export Complexity</div></div>
     </div>
 
     <h3 style="margin-top:16px">Data Manifest</h3>
@@ -1030,17 +1172,17 @@ def _generate_html_report(json_report, findings, client, auditor, scan_date, ris
         color = risk_badge.get(f.risk, "#6b7280")
         findings_rows += f"""
         <tr>
-          <td><span class="badge" style="background:{color}">{f.risk}</span></td>
-          <td><strong>{f.tool}</strong></td>
-          <td>{f.category}</td>
-          <td>{f.source}</td>
-          <td>{f.evidence}</td>
-          <td>{f.notes or '—'}</td>
+          <td><span class="badge" style="background:{color}">{_esc(f.risk)}</span></td>
+          <td><strong>{_esc(f.tool)}</strong></td>
+          <td>{_esc(f.category)}</td>
+          <td>{_esc(f.source)}</td>
+          <td>{_esc(f.evidence)}</td>
+          <td>{_esc(f.notes or '—')}</td>
         </tr>"""
 
     top_actions_html = ""
     for i, action in enumerate(top_actions, 1):
-        top_actions_html += f"<li><strong>{i}.</strong> {action}</li>"
+        top_actions_html += f"<li><strong>{i}.</strong> {_esc(action)}</li>"
     if not top_actions_html:
         top_actions_html = "<li>No critical findings — no immediate action required.</li>"
 
@@ -1050,14 +1192,50 @@ def _generate_html_report(json_report, findings, client, auditor, scan_date, ris
         color = risk_badge.get(level, "#6b7280")
         risk_summary_html += f'<div class="risk-stat"><span class="badge" style="background:{color}">{level}</span><span class="count">{count}</span></div>'
 
-    if pipeda_exposure:
-        pipeda_alert = "<div class='alert critical'><strong>PIPEDA/PHIPA Exposure Detected.</strong> Client or sensitive data is being shared with consumer AI tools. Immediate action required.</div>"
+    summary = json_report["summary"]
+    coverage = json_report.get("scan_coverage", [])
+    scan_complete = summary.get("scan_complete", True)
+
+    # AUDIT-INTEGRITY (2026-09-27): wording must match the evidence.
+    # A browser/DNS visit shows a tool was USED, not what was typed into it.
+    if summary.get("pipeda_confirmed_by_interview"):
+        pipeda_alert = ("<div class='alert critical'><strong>PIPEDA/PHIPA exposure confirmed by staff interview.</strong> "
+                        "Staff report entering client, patient or financial information into AI tools. Immediate action required.</div>")
+    elif pipeda_exposure:
+        pipeda_alert = ("<div class='alert warning'><strong>Possible PIPEDA/PHIPA exposure.</strong> "
+                        "Consumer AI tools are in use on this computer. Browsing and DNS records show a tool was used, "
+                        "not what was entered into it. Confirm with staff interviews before drawing conclusions.</div>")
+    elif not scan_complete:
+        pipeda_alert = ("<div class='alert warning'><strong>Scan incomplete — this is not a clean result.</strong> "
+                        "One or more sources could not be read (see Scan Coverage). No conclusion about PIPEDA/PHIPA exposure "
+                        "can be drawn until they are scanned.</div>")
     else:
-        pipeda_alert = "<div class='alert ok'><strong>No immediate PIPEDA/PHIPA exposure detected.</strong> However, review all findings for potential risks.</div>"
+        pipeda_alert = "<div class='alert ok'><strong>No immediate PIPEDA/PHIPA exposure detected in the sources scanned.</strong> Review all findings for potential risks.</div>"
+
+    status_label = {"ok": "Scanned", "partial": "Partial", "failed": "NOT SCANNED", "not_found": "Not found"}
+    status_color = {"ok": "#16a34a", "partial": "#ca8a04", "failed": "#dc2626", "not_found": "#6b7280"}
+    cov_rows = "".join(
+        f"<tr><td>{_esc(c['module'])}</td><td>{_esc(c['source'])}</td>"
+        f"<td><span class='badge' style='background:{status_color.get(c['status'], '#6b7280')}'>{_esc(status_label.get(c['status'], c['status']))}</span></td>"
+        f"<td>{_esc(c['detail'])}</td></tr>"
+        for c in coverage
+    )
+    if coverage:
+        incomplete_banner = "" if scan_complete else (
+            "<div class='alert critical'><strong>INCOMPLETE SCAN.</strong> "
+            f"{sum(1 for c in coverage if c['status'] in ('failed', 'partial'))} source(s) could not be fully read. "
+            "Findings below cover only the sources marked Scanned.</div>")
+        coverage_html = (incomplete_banner +
+                         "<h3 style='margin-top:12px'>Scan Coverage</h3><table>"
+                         "<tr><th>Module</th><th>Source</th><th>Status</th><th>Detail</th></tr>"
+                         f"{cov_rows}</table>")
+    else:
+        coverage_html = ""
+    pipeda_alert = coverage_html + pipeda_alert
 
     insurance_alert = ""
     if insurance_gap:
-        insurance_alert = "<div class='alert warning'><strong>Insurance Coverage Gap Risk.</strong> AI-related data sharing may void cyber insurance coverage. Verify with your insurance provider.</div>"
+        insurance_alert = "<div class='alert warning'><strong>Insurance Coverage Gap Risk.</strong> Unmanaged use of consumer AI tools may affect cyber insurance coverage. Verify with your insurance provider.</div>"
 
     platform_str = json_report.get('platform', 'Unknown')
 
@@ -1069,10 +1247,10 @@ def _generate_html_report(json_report, findings, client, auditor, scan_date, ris
         template = f.read()
 
     return template.format(
-        client=client,
-        auditor=auditor,
-        scan_date=scan_date,
-        platform=platform_str,
+        client=_esc(client),
+        auditor=_esc(auditor),
+        scan_date=_esc(scan_date),
+        platform=_esc(platform_str),
         total_findings=json_report['summary']['total_findings'],
         unique_tools=json_report['summary']['unique_tools'],
         critical_count=risk_counts.get('CRITICAL', 0),
@@ -2024,9 +2202,10 @@ def main():
 Cross-Platform Auto-Detect Mode (recommended):
   python scanner.py --client "Client" --auto --output-dir ./reports
 
-  On macOS: detects Chrome, Firefox, Safari, Edge, Brave, Arc
-  On Linux: detects Chrome, Chromium, Firefox, Brave, Edge
-  On Windows: detects Chrome, Firefox, Edge, Brave
+  On macOS: detects Chrome, Firefox, Safari, Edge, Brave, Arc, Vivaldi, Opera
+  On Linux: detects Chrome, Chromium, Firefox, Brave, Edge, Vivaldi, Opera
+  On Windows: detects Chrome, Firefox, Edge, Brave, Vivaldi, Opera
+  Every browser profile is scanned (e.g. Edge work profiles).
 
   Also auto-scans installed software per OS:
   macOS: /Applications
@@ -2078,6 +2257,7 @@ Interactive Interview:
     output_dir.mkdir(parents=True, exist_ok=True)
     scan_date = datetime.datetime.now().strftime("%Y-%m-%d")
     store = FindingStore(output_dir / "findings.db")
+    reset_coverage()
     store.set_meta(client=args.client, auditor=args.auditor, scan_date=scan_date)
 
     # Capture machine info for audit trail
@@ -2190,12 +2370,12 @@ Interactive Interview:
         interview_count = 0
         total_interview_findings = 0
         while True:
-            interview_findings, responses = interactive_interview()
-            for f in interview_findings:
+            live_findings, responses = interactive_interview()
+            for f in live_findings:
                 store.add(f)
             interview_count += 1
-            total_interview_findings += len(interview_findings)
-            print(f"\n  Recorded {len(interview_findings)} finding(s) from interview.")
+            total_interview_findings += len(live_findings)
+            print(f"\n  Recorded {len(live_findings)} finding(s) from interview.")
             another = input("\n  Interview another staff member? (y/n): ").strip().lower()
             if another != "y":
                 break
@@ -2210,29 +2390,8 @@ Interactive Interview:
             interview_data = json.load(f)
         interviews = interview_data if isinstance(interview_data, list) else [interview_data]
         for interview in interviews:
-            tools_str = interview.get("tools", "").lower()
-            if tools_str and tools_str != "none":
-                software_map = domain_db.get("software_names", {})
-                for tool_name in [t.strip() for t in tools_str.split(",")]:
-                    matched = False
-                    for sw_name, info in software_map.items():
-                        if sw_name.lower() in tool_name.lower():
-                            data_types = interview.get("data_types", "").lower()
-                            risk_override = "CRITICAL" if any(w in data_types for w in ["yes", "client", "patient", "financial"]) else None
-                            store.add(Finding(
-                                source="interview", tool=sw_name, category=info["category"],
-                                risk=risk_override or info["risk_default"],
-                                evidence=f"Staff interview: {interview.get('name', 'anonymous')} ({interview.get('role', 'unknown')}) uses {sw_name} for {interview.get('use_cases', 'unspecified')}",
-                                notes=f"Data shared: {interview.get('data_types', 'unknown')}. Account type: {interview.get('account_type', 'unknown')}."
-                            ))
-                            matched = True
-                            break
-                    if not matched and tool_name and tool_name != "none":
-                        store.add(Finding(
-                            source="interview", tool=tool_name.title(), category="unknown", risk="MEDIUM",
-                            evidence=f"Staff interview: {interview.get('name', 'anonymous')} ({interview.get('role', 'unknown')}) uses {tool_name}",
-                            notes=f"Data shared: {interview.get('data_types', 'unknown')}. Account type: {interview.get('account_type', 'unknown')}."
-                        ))
+            for f in interview_findings(interview, domain_db):
+                store.add(f)
         print(f"  Processed {len(interviews)} interview(s).")
         print()
 
@@ -2305,6 +2464,12 @@ Interactive Interview:
         except Exception as e:
             print(f"  warn: deduplication pass failed: {e}")
 
+        for m in modules_run:
+            if m != "deduplication":
+                record_coverage("docs", m, "ok")
+        for m in modules_skipped:
+            record_coverage("docs", m, "failed", "module errored or the total time budget ran out")
+
         all_locations = local_locations + cloud_locations + email_locations
         total_docs = sum(l.document_count or 0 for l in all_locations)
         total_size = sum(l.total_size_bytes or 0 for l in all_locations)
@@ -2336,9 +2501,17 @@ Interactive Interview:
         args.auto, args.dns_log, args.browser_history, args.software_inventory,
         args.interview, args.interview_data,
     ])
+    if args.interview or args.interview_data:
+        record_coverage("interview", "staff interviews", "ok",
+                        "live interview" if args.interview else f"loaded from {Path(args.interview_data).name}")
+
+    incomplete = [c for c in SCAN_COVERAGE if c["status"] in ("failed", "partial")]
     if not store.findings and ai_modules_ran:
         print("No AI tools detected across selected scan modules.")
-        print("Generating clean (zero-finding) report pack...\n")
+        if incomplete:
+            print("Generating zero-finding report pack — marked INCOMPLETE (see coverage below).\n")
+        else:
+            print("Generating clean (zero-finding) report pack...\n")
 
     # Generate reports
     print(f"{'=' * 60}")
@@ -2360,6 +2533,11 @@ Interactive Interview:
     print(f"\n  Total findings:    {result['total_findings']}")
     print(f"  Unique AI tools:   {result['unique_tools']}")
     print(f"  Risk distribution: {result['risk_distribution']}")
+    if incomplete:
+        print(f"\n  !! SCAN INCOMPLETE — {len(incomplete)} source(s) not fully read:")
+        for c in incomplete:
+            print(f"     - [{c['module']}] {c['source']}: {c['status']} — {c['detail']}")
+        print("     The report says so. Fix access and re-run before calling this machine clean.")
     print(f"\n{'=' * 60}")
     print("Scan complete. Reports saved to output directory.")
     print(f"{'=' * 60}\n")
