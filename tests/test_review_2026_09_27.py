@@ -149,6 +149,8 @@ def test_audit_kit_interview_questions_visible(tmp_path):
     import time
     home = tmp_path / "home"
     home.mkdir()
+    conf = KIT_DIR / ".audit-kit.conf"
+    conf_before = conf.read_bytes() if conf.exists() else None
     pid, fd = pty.fork()
     if pid == 0:
         os.environ.update(HOME=str(home), AUDITKIT_SKIP_SOFTWARE="1", AUDITKIT_SKIP_BROWSER="1")
@@ -165,6 +167,10 @@ def test_audit_kit_interview_questions_visible(tmp_path):
     finally:
         os.kill(pid, 9)
         os.waitpid(pid, 0)
+        if conf_before is None:
+            conf.unlink(missing_ok=True)  # never leave the test auditor "A" on a kit
+        else:
+            conf.write_bytes(conf_before)
     assert b"Staff member name" in buf, buf[-400:]
     assert not (home / ".elect-rix").exists(), "audit-kit must not write config into the client's home"
 
